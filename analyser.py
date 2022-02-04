@@ -2,16 +2,24 @@
 SCRATCHPAD MEMORY AUTOMATION
 """
 
+from operator import index
 import sys
-from pycparser import parse_file, c_generator
+from pycparser import parse_file, c_generator, CParser
 
 from pycparser import c_ast
 
 from collections import defaultdict
 
 
+from pygments import highlight
+from pygments.lexers import CLexer
+from pygments.formatters import TerminalFormatter
+
 def ast_to_c(ast):
     return c_generator.CGenerator().visit(ast)
+
+def ast_to_c_highlight(ast):
+    return highlight(ast_to_c(ast), CLexer(), TerminalFormatter(bg='dark', linenos=True))
 
 
 class MyVisitor(c_ast.NodeVisitor):
@@ -52,10 +60,31 @@ class MyVisitor(c_ast.NodeVisitor):
 
         self.stack.append(res)
 
+from itertools import chain
 
 class MyNode:
 
     rd = " | "
+
+    def __init__(self, node):
+        self.inner = []
+        self.c_ast_node = node
+        self.father = None
+
+    def update_fathers(self):
+        for node in self.inner:
+            node.father = self
+            node.update_fathers()
+    
+    def get_all_refs(self):
+        return [self] if type(self) is MyArrayRef else \
+               chain(*(mnode.get_all_refs() for mnode in self.inner))
+
+    def iter_father(self):
+        mnode = self
+        while not mnode.father is None:
+            yield mnode
+            mnode = mnode.father
 
     def render(self):
         pass
@@ -66,8 +95,7 @@ class MyNode:
 
 class MyFileAST(MyNode):
     def __init__(self, node):
-        self.c_ast_node = node
-        self.inner = []
+        super().__init__(node)
 
     def render(self, dept):
         res = self.rd * dept + "FILE\n"
@@ -78,8 +106,8 @@ class MyFileAST(MyNode):
 
 class MyFuncDef(MyNode):
     def __init__(self, node):
-        self.c_ast_node = node
-        self.inner = []
+        super().__init__(node)
+
 
     def render(self, dept):
         res = self.rd * dept + "FUNC " + ast_to_c(self.c_ast_node.decl) + "\n"
@@ -90,9 +118,8 @@ class MyFuncDef(MyNode):
 
 class MyFor(MyNode):
     def __init__(self, node):
-        self.c_ast_node = node
+        super().__init__(node)
         # TODO check bonded
-        self.inner = []
 
     def render(self, dept):
         def str_For(node):
@@ -102,11 +129,22 @@ class MyFor(MyNode):
         for mnode in self.inner:
             res += mnode.render(dept + 1)
         return res
+    
+    def extract_l(self):
+        """ Return the for Bounds """
+        # print(self.c_ast_node)
+        var_loop_name = self.c_ast_node.init.decls[0].name
+        # /!\ Very restrictive
+        assert self.c_ast_node.init.decls[0].init.value == '0'
+        assert self.c_ast_node.cond.op == '<'
+        assert self.c_ast_node.cond.left.name == var_loop_name
+        l = self.c_ast_node.cond.right.value
+        return (var_loop_name, int('0'), int(l))
 
 
 class MyArrayRef(MyNode):
     def __init__(self, node):
-        self.c_ast_node = node
+        super().__init__(node)
         # TODO check array constant/i acces
         self.varname = ""
         self.access_patern = None
@@ -114,6 +152,9 @@ class MyArrayRef(MyNode):
     def render(self, dept):
         return self.rd * dept + "REF " + ast_to_c(self.c_ast_node) + "\n"
 
+    def extract_l_tree(self):
+        return (mfor_node.extract_l() for mfor_node in 
+                filter(lambda x: type(x) is MyFor, self.iter_father()))
 
 class AstToolkit:
     def __init__(self, filename):
@@ -123,14 +164,84 @@ class AstToolkit:
         mv = MyVisitor()
         mv.visit(self.ast)
         self.mast = mv.stack[-1]
-
+        self.mast.update_fathers()
+        for ref in self.mast.get_all_refs():
+            print(ref)
+    
+        
     def test(self):
         print(self.mast)
+        for mref in self.mast.get_all_refs():
+            dma_mapping_algo3(mref)
 
     def exportc(self):
         generator = c_generator.CGenerator()
         return generator.visit(self.ast)
 
+
+
+DMA_SIZE =  129
+from math import ceil, floor
+
+
+def dma_mapping_algo3(mref):
+    """
+    l_tree format : [(name, 0, N), (name2, 0, M), ...]
+    """
+
+    for_nodes = list(filter(lambda x: type(x) is MyFor, mref.iter_father()))
+    l_tree = list(mref.extract_l_tree())
+
+    print(for_nodes, l_tree)
+
+    # Compute cumulative acces
+    arr_names = [l[0] for l in l_tree]
+    arr_l = [l[2] for l in l_tree]
+    # BEARK ! :/    
+    arr_l_cum = [None for _ in arr_l]
+    arr_l_cum[0] = arr_l[0]
+    for i in range(1, len(arr_l)):
+        arr_l_cum[i] = arr_l_cum[i-1] * arr_l[i]
+
+    print(f'{arr_l=} {arr_l_cum=}')
+
+    index_loop = 0
+    while DMA_SIZE > arr_l_cum[index_loop]:
+        index_loop+=1
+    
+    print(f'{index_loop=}')
+
+    if index_loop == 0:
+        # Divise elementary loop
+        pass
+    else:
+        # Repeat multiple time the elementaty loop
+        nb_repeat = DMA_SIZE / arr_l_cum[index_loop-1]
+        nb_repeat_int = floor(nb_repeat)
+        dma_transfer_size = nb_repeat_int * arr_l_cum[index_loop-1]
+        nb_residual_int =arr_l[index_loop-1] % nb_repeat_int
+        dma_efficiency = dma_transfer_size/DMA_SIZE
+        print(f'{nb_repeat=}, {nb_repeat_int=}, {nb_residual_int=}')
+        print(f'{dma_transfer_size=}/{DMA_SIZE=} = {dma_transfer_size/DMA_SIZE}')
+        
+        # Find the for @ index_loop
+        compound = for_nodes[index_loop].c_ast_node.stmt.block_items
+        position = compound.index(for_nodes[index_loop-1].c_ast_node)
+        ast_sub_for = compound.pop(position)
+        # TODO replace tab -> BUFF
+        print(ast_to_c_highlight(ast_sub_for))
+
+        # ALGO 3; Note the {ast_to_c(ast_sub_for)}
+        algo_c = f'DMA_READ({"TODO"}[{"TODO"}], BUFF, MIN({dma_transfer_size}, ({arr_l[index_loop]}-{arr_names[index_loop]})*{nb_repeat_int}));\
+                  for(int mm = 0; mm < {nb_repeat_int} && {arr_names[index_loop]} < {arr_l[index_loop]}; mm++, {arr_names[index_loop]}++){{{ast_to_c(ast_sub_for)}}}'
+        ast_intermediate = CParser().parse('void azertytreza(){{' + algo_c + '}}').ext[0].body.block_items[0]
+        print(ast_to_c_highlight(ast_intermediate))
+
+
+        compound.insert(position, ast_intermediate)
+       
+
+    return dma_efficiency    
 
 # On veux 3 indicateurs:
 #    - CPU   : l'algo ajoute peu de cycles cpu.
@@ -199,12 +310,13 @@ class AstToolkit:
 #  |  |  | REF BUFF[i + mm*6]
 #
 
+# TODO: /!\ Lecture ne correspondant pas aux index direct exemple tab[i+1] !
 
 def main(filename):
     ast = AstToolkit(filename)
     ast.test()
     print("CGEN")
-    print(ast.exportc())
+    print(ast_to_c_highlight(ast.ast))
 
 
 if __name__ == "__main__":

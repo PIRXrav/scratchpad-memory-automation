@@ -96,11 +96,11 @@ class MyNode:
             node.father = self
             node.update_fathers()
 
-    def get_all_refs(self):
+    def get_all_mrefs(self):
         return (
             [self]
             if type(self) is MyArrayRef
-            else chain(*(mnode.get_all_refs() for mnode in self.inner))
+            else chain(*(mnode.get_all_mrefs() for mnode in self.inner))
         )
 
     def iter_father(self):
@@ -168,8 +168,8 @@ class MyArrayRef(MyNode):
     def __init__(self, node):
         super().__init__(node)
         # TODO check array constant/i acces
-        self.varname = ""
-        self.access_patern = None
+        self.is_write = None
+        self.is_read = None
 
     def render(self, dept):
         return self.rd * dept + "REF " + ast_to_c(self.c_ast_node) + "\n"
@@ -183,11 +183,13 @@ class MyArrayRef(MyNode):
             for mfor_node in filter(lambda x: type(x) is MyFor, self.iter_father())
         )
 
+    
+
+
     def analyse(self):
         """
         Analyse the reference
         """
-
         class RefVisitor(c_ast.NodeVisitor):
             """
             ArrayRef(name=ArrayRef(name=ID(name='tab0'
@@ -249,12 +251,54 @@ class AstToolkit:
         mv.visit(self.ast)
         self.mast = mv.stack[-1]
         self.mast.update_fathers()
-        for ref in self.mast.get_all_refs():
+        for ref in self.mast.get_all_mrefs():  # TODO remove, use visitor
             print(ref)
+        self.decorate_mrefs_rw()
+
+    def decorate_mrefs_rw(self):
+        """
+        Add is_read, is_write to RefNode
+        """
+        class RefRWVisitor(c_ast.NodeVisitor):
+            """
+          
+            """
+            def __init__(self, mrefs):
+                self.mrefs = mrefs
+                # Reset (guard)
+                self.is_write = None
+                self.is_read = None
+
+            def visit_Assignment(self, node):
+                # Check L value
+                self.is_write = True
+                self.is_read = not node.op == '=' # else # <= , >=, +=, ...
+                self.visit(node.lvalue)
+                
+                # Check R value
+                self.is_write = False
+                self.is_read = True
+                self.visit(node.rvalue)
+                
+                # Reset (guard)
+                self.is_write = None
+                self.is_read = None
+
+            def visit_ArrayRef(self, node):
+                for mref in self.mrefs:
+                    if mref.c_ast_node == node:
+                        mref.is_read = self.is_read
+                        mref.is_write = self.is_write
+                        return
+                raise Exception("Unknown node", node)
+
+
+        rrwv = RefRWVisitor(list(self.mast.get_all_mrefs()))
+        rrwv.visit(self.ast)
 
     def do_memory_mapping(self):
         print(self.mast)
-        for mref in self.mast.get_all_refs():
+        for mref in self.mast.get_all_mrefs():
             dma_mapping_algo3(mref)
 
     def exportc(self):
@@ -276,11 +320,6 @@ class Gencode:
     @classmethod
     def cgen_dma_st(self, adr, buff, size):
         return f"DMA_ST({adr}, {buff}, {size});"
-
-    @classmethod
-    def cgen_min(a, b):
-        return f"MIN({a}, {b})"
-
 
 import sys
 
@@ -319,6 +358,9 @@ def dma_mapping_algo3(mref):
     print(f"{ref_access_names=}")
     print(f"{loops_access_l=}")
     print(f"{loops_access_l_cum=}")
+    print(f"{mref.is_read=}")
+    print(f"{mref.is_write=}")
+
 
     # Find where insert DMA LD/ST
     IL = 0
@@ -345,7 +387,7 @@ def dma_mapping_algo3(mref):
         compound = for_nodes[IL].c_ast_node.stmt.block_items
         position = compound.index(for_nodes[IL - 1].c_ast_node)
         ast_sub_for = compound.pop(position)
-        print(ast_to_c_highlight(ast_sub_for))
+        # print(ast_to_c_highlight(ast_sub_for))
 
         # replace tab <-> BUFF
         buffer_name = "__SMA__dma0"
@@ -368,21 +410,18 @@ def dma_mapping_algo3(mref):
         mref.c_ast_node.subscript = ast_buff.subscript
         inds = (name if i > IL - 1 else 0 for i, name in enumerate(ref_access_names))
         tab_rw = ref_name + "".join(reversed(list((f"[{index}]" for index in inds))))
-        print(f"substitute ref->{(buff_rw)} mapped @ {(tab_rw)}")
-
-        print(ast_to_c_highlight(ast_sub_for))
+        # print(f"substitute ref->{(buff_rw)} mapped @ {(tab_rw)}")
+        # print(ast_to_c_highlight(ast_sub_for))
 
         # ALGO 3; Note the {ast_to_c(ast_sub_for)}
+        cgen_dma_args = ("&" + tab_rw, buffer_name, f"MIN({dma_transfer_size}, ({loops_access_l[IL]}-{ref_access_names[IL]})*{nb_repeat_int})\n")
         algo_c = (
-            Gencode.cgen_dma_ld(
-                "&" + tab_rw,
-                buffer_name,
-                f"MIN({dma_transfer_size}, ({loops_access_l[IL]}-{ref_access_names[IL]})*{nb_repeat_int})\n",
-            )
+            (Gencode.cgen_dma_ld(*cgen_dma_args) if mref.is_read is True else '')
             + f"for(int mm = 0; mm < {nb_repeat_int} && {ref_access_names[IL]} < {loops_access_l[IL]}; mm++, {ref_access_names[IL]}++){{{ast_to_c(ast_sub_for)}}}"
+            + (Gencode.cgen_dma_st(*cgen_dma_args) if mref.is_write is True else '')
         )
         ast_intermediate = compound_c_to_ast(algo_c)
-        print(ast_to_c_highlight(ast_intermediate))
+        # print(ast_to_c_highlight(ast_intermediate))
 
         compound.insert(position, ast_intermediate)
 

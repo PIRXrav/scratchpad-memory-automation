@@ -224,6 +224,11 @@ class MyArrayRef(MyNode):
             raise Exception(
                 f"Invalid memory mapping: {ref_access_names} != {loops_access_names} (TODO)"
             )
+            # TODO: /!\ Lecture ne correspondant pas aux index direct exemple tab[i+1] !
+            # TODO Partitionnement mémoire. Exemple Toeplitz matrix.
+            # https://www.rle.mit.edu/eems/wp-content/uploads/2019/06/Tutorial-on-DNN-04-Kernel-Computations.pdf
+            # Slide 25
+
         return for_nodes, ref_name, ref_access_names, loops_access_l, loops_access_l_cum
 
 
@@ -430,14 +435,27 @@ def dma_mapping_algo3(mref):
 #  |  | REF tab0[j][i]
 #
 # ===> EXEMPLES #DMA = 25 (#DMA > 4 L0 && #DMA < 1L1)
+# ===> VERSION AVEC IF
 # FOR int j = 0; j < 6; j++
 #  | DMA tab[j][0] -> BUFF #MIN(4*6, (6-j)*4)) # INSERT HERE
 #  | FOR int mm = 0; mm < 4 && j < 6; mm++, j++   #
 #  |  | FOR int i = 0; i < 6; i++
 #  |  |  | REF BUFF[i + mm*6]
 #
-
-# TODO: /!\ Lecture ne correspondant pas aux index direct exemple tab[i+1] !
+# ===> VERSION AVEC DUPLICATION BOUCLE
+# int j = 0
+# FOR ; j < NEW; j++      # NEW = LAST - LAST%4
+#  | DMA tab[j][0] -> BUFF #(4*6)) # INSERT HERE
+#  | FOR int mm = 0; mm < 4; mm++, j++
+#  |  | FOR int i = 0; i < 6; i++
+#  |  |  | REF BUFF[i + mm*6]
+# DMA tab[j][0] -> BUFF #(2*4)
+# FOR int mm = 0; mm < 2; mm ++
+#  | FOR int i = 0; i < 6; i++
+#  |  | REF BUFF[i + mm*6]
+#
+# # + Aucun curcout cpu !!
+# # - Programme plus gros / plus compliqué à unroll ?
 
 
 def main(filename):

@@ -15,11 +15,21 @@ from pygments import highlight
 from pygments.lexers import CLexer
 from pygments.formatters import TerminalFormatter
 
+import numpy as np
+
+
 def ast_to_c(ast):
     return c_generator.CGenerator().visit(ast)
 
+
 def ast_to_c_highlight(ast):
-    return highlight(ast_to_c(ast), CLexer(), TerminalFormatter(bg='dark', linenos=True))
+    return highlight(
+        ast_to_c(ast), CLexer(), TerminalFormatter(bg="dark", linenos=True)
+    )
+
+
+def c_highight(code):
+    return highlight(code, CLexer(), TerminalFormatter(bg="dark", linenos=True))
 
 
 class MyVisitor(c_ast.NodeVisitor):
@@ -60,7 +70,9 @@ class MyVisitor(c_ast.NodeVisitor):
 
         self.stack.append(res)
 
+
 from itertools import chain
+
 
 class MyNode:
 
@@ -75,10 +87,13 @@ class MyNode:
         for node in self.inner:
             node.father = self
             node.update_fathers()
-    
+
     def get_all_refs(self):
-        return [self] if type(self) is MyArrayRef else \
-               chain(*(mnode.get_all_refs() for mnode in self.inner))
+        return (
+            [self]
+            if type(self) is MyArrayRef
+            else chain(*(mnode.get_all_refs() for mnode in self.inner))
+        )
 
     def iter_father(self):
         mnode = self
@@ -108,7 +123,6 @@ class MyFuncDef(MyNode):
     def __init__(self, node):
         super().__init__(node)
 
-
     def render(self, dept):
         res = self.rd * dept + "FUNC " + ast_to_c(self.c_ast_node.decl) + "\n"
         for mnode in self.inner:
@@ -129,17 +143,17 @@ class MyFor(MyNode):
         for mnode in self.inner:
             res += mnode.render(dept + 1)
         return res
-    
+
     def extract_l(self):
-        """ Return the for Bounds """
+        """Return the for Bounds"""
         # print(self.c_ast_node)
         var_loop_name = self.c_ast_node.init.decls[0].name
         # /!\ Very restrictive
-        assert self.c_ast_node.init.decls[0].init.value == '0'
-        assert self.c_ast_node.cond.op == '<'
+        assert self.c_ast_node.init.decls[0].init.value == "0"
+        assert self.c_ast_node.cond.op == "<"
         assert self.c_ast_node.cond.left.name == var_loop_name
         l = self.c_ast_node.cond.right.value
-        return (var_loop_name, int('0'), int(l))
+        return (var_loop_name, int("0"), int(l))
 
 
 class MyArrayRef(MyNode):
@@ -153,8 +167,65 @@ class MyArrayRef(MyNode):
         return self.rd * dept + "REF " + ast_to_c(self.c_ast_node) + "\n"
 
     def extract_l_tree(self):
-        return (mfor_node.extract_l() for mfor_node in 
-                filter(lambda x: type(x) is MyFor, self.iter_father()))
+        """
+        l_tree format : [(i_name, 0, N), (i_name2, 0, M), ...]
+        """
+        return (
+            mfor_node.extract_l()
+            for mfor_node in filter(lambda x: type(x) is MyFor, self.iter_father())
+        )
+
+    def analyse(self):
+        """
+        Analyse the reference
+        """
+
+        class RefVisitor(c_ast.NodeVisitor):
+            """
+            ArrayRef(name=ArrayRef(name=ID(name='tab0'
+                                        ),
+                                subscript=ID(name='j'
+                                                )
+                                ),
+                    subscript=ID(name='i'
+                                )
+            )
+            return ['tab0', 'j', 'i']
+            """
+
+            def __init__(self):
+                self.res = []
+                self.name = None
+
+            def generic_visit(self, node):
+                raise Exception("Did not visit a ref", node)
+
+            def visit_ArrayRef(self, node):
+                self.res.append(node.subscript.name)  # TODO i+k ...
+                self.visit(node.name)
+
+            def visit_ID(self, node):
+                self.name = node.name
+
+        # Compute fathers list for nodes
+        for_nodes = list(filter(lambda x: type(x) is MyFor, self.iter_father()))
+        # Comute L value for all for nodes
+        l_tree = list(self.extract_l_tree())
+
+        loops_access_l = [l[2] for l in l_tree]
+        loops_access_l_cum = list(np.cumprod(loops_access_l))
+        loops_access_names = [l[0] for l in l_tree]
+
+        rv = RefVisitor()
+        rv.visit(self.c_ast_node)
+        ref_name, ref_access_names = rv.name, rv.res
+
+        if ref_access_names != loops_access_names:
+            raise Exception(
+                f"Invalid memory mapping: {ref_access_names} != {loops_access_names} (TODO)"
+            )
+        return for_nodes, ref_name, ref_access_names, loops_access_l, loops_access_l_cum
+
 
 class AstToolkit:
     def __init__(self, filename):
@@ -167,8 +238,7 @@ class AstToolkit:
         self.mast.update_fathers()
         for ref in self.mast.get_all_refs():
             print(ref)
-    
-        
+
     def test(self):
         print(self.mast)
         for mref in self.mast.get_all_refs():
@@ -179,69 +249,126 @@ class AstToolkit:
         return generator.visit(self.ast)
 
 
-
-DMA_SIZE =  129
+DMA_SIZE = 129
 from math import ceil, floor
+
+from pycparser import plyparser
+
+
+class Gencode:
+    @classmethod
+    def cgen_dma_ld(self, adr, buff, size):
+        return f"DMA_LD({adr}, {buff}, {size});"
+
+    @classmethod
+    def cgen_dma_st(self, adr, buff, size):
+        return f"DMA_ST({adr}, {buff}, {size});"
+
+    @classmethod
+    def cgen_min(a, b):
+        return f"MIN({a}, {b})"
+
+
+import sys
+
+
+def compound_c_to_ast(code):
+    try:
+        ast = CParser().parse("void azertytreza(){{" + code + "}}")
+        return ast.ext[0].body.block_items[0]
+    except plyparser.ParseError:
+        print("Error Gencode; invalid code:")
+        print(c_highight(code))
+        raise
+
+
+def expr_c_to_ast(code):
+    return compound_c_to_ast(f"{code};").block_items[0]
 
 
 def dma_mapping_algo3(mref):
-    """
-    l_tree format : [(name, 0, N), (name2, 0, M), ...]
-    """
+    """ """
+    # Analyse reference
+    (
+        for_nodes,
+        ref_name,
+        ref_access_names,
+        loops_access_l,
+        loops_access_l_cum,
+    ) = mref.analyse()
+    print(f"{ref_name=}")
+    print(f"{ref_access_names=}")
+    print(f"{loops_access_l=}")
+    print(f"{loops_access_l_cum=}")
 
-    for_nodes = list(filter(lambda x: type(x) is MyFor, mref.iter_father()))
-    l_tree = list(mref.extract_l_tree())
+    # Find where insert DMA LD/ST
+    IL = 0
+    while DMA_SIZE > loops_access_l_cum[IL]:
+        IL += 1
 
-    print(for_nodes, l_tree)
+    print(f"{IL=}")
 
-    # Compute cumulative acces
-    arr_names = [l[0] for l in l_tree]
-    arr_l = [l[2] for l in l_tree]
-    # BEARK ! :/    
-    arr_l_cum = [None for _ in arr_l]
-    arr_l_cum[0] = arr_l[0]
-    for i in range(1, len(arr_l)):
-        arr_l_cum[i] = arr_l_cum[i-1] * arr_l[i]
-
-    print(f'{arr_l=} {arr_l_cum=}')
-
-    index_loop = 0
-    while DMA_SIZE > arr_l_cum[index_loop]:
-        index_loop+=1
-    
-    print(f'{index_loop=}')
-
-    if index_loop == 0:
+    if IL == 0:
         # Divise elementary loop
+        raise Exception("Unimplemented TODO")
         pass
     else:
         # Repeat multiple time the elementaty loop
-        nb_repeat = DMA_SIZE / arr_l_cum[index_loop-1]
+        nb_repeat = DMA_SIZE / loops_access_l_cum[IL - 1]
         nb_repeat_int = floor(nb_repeat)
-        dma_transfer_size = nb_repeat_int * arr_l_cum[index_loop-1]
-        nb_residual_int =arr_l[index_loop-1] % nb_repeat_int
-        dma_efficiency = dma_transfer_size/DMA_SIZE
-        print(f'{nb_repeat=}, {nb_repeat_int=}, {nb_residual_int=}')
-        print(f'{dma_transfer_size=}/{DMA_SIZE=} = {dma_transfer_size/DMA_SIZE}')
-        
-        # Find the for @ index_loop
-        compound = for_nodes[index_loop].c_ast_node.stmt.block_items
-        position = compound.index(for_nodes[index_loop-1].c_ast_node)
+        dma_transfer_size = nb_repeat_int * loops_access_l_cum[IL - 1]
+        nb_residual_int = loops_access_l[IL - 1] % nb_repeat_int
+        dma_efficiency = dma_transfer_size / DMA_SIZE
+        print(f"{nb_repeat=}, {nb_repeat_int=}, {nb_residual_int=}")
+        print(f"{dma_transfer_size=}/{DMA_SIZE=} = {dma_transfer_size/DMA_SIZE}")
+
+        # Find the for @ IL
+        compound = for_nodes[IL].c_ast_node.stmt.block_items
+        position = compound.index(for_nodes[IL - 1].c_ast_node)
         ast_sub_for = compound.pop(position)
-        # TODO replace tab -> BUFF
+        print(ast_to_c_highlight(ast_sub_for))
+
+        # replace tab <-> BUFF
+        buffer_name = "__SMA__dma0"
+        buff_adr = "+".join(
+            chain(
+                (
+                    f"{i}*{cumprod}"
+                    for i, cumprod in zip(
+                        ref_access_names[0:IL],
+                        chain((1,), loops_access_l_cum[0:IL]),
+                    )
+                ),
+                (f"mm*{loops_access_l_cum[IL-1]}",),
+            )
+        )
+        buff_rw = f"{buffer_name}[{buff_adr}]"
+        ast_buff = expr_c_to_ast(buff_rw)
+        # print(ast_to_c_highlight(ast_buff))
+        mref.c_ast_node.name = ast_buff.name  # Copy node
+        mref.c_ast_node.subscript = ast_buff.subscript
+        inds = (name if i > IL - 1 else 0 for i, name in enumerate(ref_access_names))
+        tab_rw = ref_name + "".join(reversed(list((f"[{index}]" for index in inds))))
+        print(f"substitute ref->{(buff_rw)} mapped @ {(tab_rw)}")
+
         print(ast_to_c_highlight(ast_sub_for))
 
         # ALGO 3; Note the {ast_to_c(ast_sub_for)}
-        algo_c = f'DMA_READ({"TODO"}[{"TODO"}], BUFF, MIN({dma_transfer_size}, ({arr_l[index_loop]}-{arr_names[index_loop]})*{nb_repeat_int}));\
-                  for(int mm = 0; mm < {nb_repeat_int} && {arr_names[index_loop]} < {arr_l[index_loop]}; mm++, {arr_names[index_loop]}++){{{ast_to_c(ast_sub_for)}}}'
-        ast_intermediate = CParser().parse('void azertytreza(){{' + algo_c + '}}').ext[0].body.block_items[0]
+        algo_c = (
+            Gencode.cgen_dma_ld(
+                "&" + tab_rw,
+                buffer_name,
+                f"MIN({dma_transfer_size}, ({loops_access_l[IL]}-{ref_access_names[IL]})*{nb_repeat_int})\n",
+            )
+            + f"for(int mm = 0; mm < {nb_repeat_int} && {ref_access_names[IL]} < {loops_access_l[IL]}; mm++, {ref_access_names[IL]}++){{{ast_to_c(ast_sub_for)}}}"
+        )
+        ast_intermediate = compound_c_to_ast(algo_c)
         print(ast_to_c_highlight(ast_intermediate))
 
-
         compound.insert(position, ast_intermediate)
-       
 
-    return dma_efficiency    
+    return dma_efficiency
+
 
 # On veux 3 indicateurs:
 #    - CPU   : l'algo ajoute peu de cycles cpu.
@@ -311,6 +438,7 @@ def dma_mapping_algo3(mref):
 #
 
 # TODO: /!\ Lecture ne correspondant pas aux index direct exemple tab[i+1] !
+
 
 def main(filename):
     ast = AstToolkit(filename)

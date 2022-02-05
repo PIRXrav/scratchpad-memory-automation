@@ -32,3 +32,10 @@ We perform a source-to-source conversion.
 - Performing this optimization at the binary level is unthinkable to have optimized programs.
 - Performing this optimization at the level of the LLVM IR is complicated.
 - Doing it on the AST seems like the best option. We have to modify the structure of the program.
+
+
+## TODO
+
+- Input source file cannot have #include
+- algo3 mid IL without CPU overhead
+- Process all IL level in algo3

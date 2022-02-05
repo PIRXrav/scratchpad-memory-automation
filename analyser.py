@@ -265,9 +265,9 @@ class AstToolkit:
             """
             def __init__(self, mrefs):
                 self.mrefs = mrefs
-                # Reset (guard)
-                self.is_write = None
-                self.is_read = None
+                # Default is READ only
+                self.is_write = False
+                self.is_read = True
 
             def visit_Assignment(self, node):
                 # Check L value
@@ -280,9 +280,9 @@ class AstToolkit:
                 self.is_read = True
                 self.visit(node.rvalue)
                 
-                # Reset (guard)
-                self.is_write = None
-                self.is_read = None
+                # Default is READ only
+                self.is_write = False
+                self.is_read = True
 
             def visit_ArrayRef(self, node):
                 for mref in self.mrefs:
@@ -295,6 +295,13 @@ class AstToolkit:
 
         rrwv = RefRWVisitor(list(self.mast.get_all_mrefs()))
         rrwv.visit(self.ast)
+        # Check decoration
+        for mref in self.mast.get_all_mrefs():
+            if mref.is_read == None:
+                raise Exception("Error occured during decorate_mrefs_rw")
+            if mref.is_write == None:
+                raise Exception("Error occured during decorate_mrefs_rw")
+                
 
     def do_memory_mapping(self):
         print(self.mast)
@@ -384,9 +391,8 @@ def dma_mapping_algo3(mref):
         print(f"{dma_transfer_size=}/{DMA_SIZE=} = {dma_transfer_size/DMA_SIZE}")
 
         # Find the for @ IL
-        compound = for_nodes[IL].c_ast_node.stmt.block_items
-        position = compound.index(for_nodes[IL - 1].c_ast_node)
-        ast_sub_for = compound.pop(position)
+        inner_top_for = for_nodes[IL].c_ast_node
+        ast_sub_for = inner_top_for.stmt # compound.pop(position)
         # print(ast_to_c_highlight(ast_sub_for))
 
         # replace tab <-> BUFF
@@ -414,16 +420,21 @@ def dma_mapping_algo3(mref):
         # print(ast_to_c_highlight(ast_sub_for))
 
         # ALGO 3; Note the {ast_to_c(ast_sub_for)}
-        cgen_dma_args = ("&" + tab_rw, buffer_name, f"MIN({dma_transfer_size}, ({loops_access_l[IL]}-{ref_access_names[IL]})*{nb_repeat_int})\n")
-        algo_c = (
-            (Gencode.cgen_dma_ld(*cgen_dma_args) if mref.is_read is True else '')
-            + f"for(int mm = 0; mm < {nb_repeat_int} && {ref_access_names[IL]} < {loops_access_l[IL]}; mm++, {ref_access_names[IL]}++){{{ast_to_c(ast_sub_for)}}}"
+        adr_name = '__SMA__adr0'
+        size_name = '__SMA__size0'
+        cgen_dma_args = (adr_name, buffer_name, size_name)
+        algo_c = (''
+            + f'void * {adr_name} = {"&" + tab_rw};\n'
+            + f'int {size_name} = MIN({dma_transfer_size}, ({loops_access_l[IL]}-{ref_access_names[IL]})*{nb_repeat_int}*{loops_access_l_cum[IL-1]});\n'
+            + (Gencode.cgen_dma_ld(*cgen_dma_args) if mref.is_read is True else '')
+            + f"for(int mm = 0; mm < {nb_repeat_int} && {ref_access_names[IL]} < {loops_access_l[IL]}; mm++, {ref_access_names[IL]}++){{{ast_to_c(ast_sub_for)}}}\n"
             + (Gencode.cgen_dma_st(*cgen_dma_args) if mref.is_write is True else '')
+            + f'{ref_access_names[IL]}--;' # TODO Beark
         )
         ast_intermediate = compound_c_to_ast(algo_c)
         # print(ast_to_c_highlight(ast_intermediate))
 
-        compound.insert(position, ast_intermediate)
+        inner_top_for.stmt = ast_intermediate
 
     return dma_efficiency
 

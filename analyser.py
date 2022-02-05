@@ -1,5 +1,13 @@
 """
 SCRATCHPAD MEMORY AUTOMATION
+
+
+C src
+[pycparser] ---> pycparse AST
+[AstToolkit] ---> Simplified AST (ast with only for/refs)
+[__SMA__] ----> pycparse AST with memory transaction
+[EXPORT] ----> C src
+
 """
 
 from operator import index
@@ -244,7 +252,7 @@ class AstToolkit:
         for ref in self.mast.get_all_refs():
             print(ref)
 
-    def test(self):
+    def do_memory_mapping(self):
         print(self.mast)
         for mref in self.mast.get_all_refs():
             dma_mapping_algo3(mref)
@@ -290,6 +298,12 @@ def compound_c_to_ast(code):
 def expr_c_to_ast(code):
     return compound_c_to_ast(f"{code};").block_items[0]
 
+class DmaBufferHandler:
+    def __init__(self):
+        pass
+
+    def get_dma_buffer(self):
+        pass
 
 def dma_mapping_algo3(mref):
     """ """
@@ -460,7 +474,7 @@ def dma_mapping_algo3(mref):
 
 def main(filename):
     ast = AstToolkit(filename)
-    ast.test()
+    ast.do_memory_mapping()
     print("CGEN")
     print(ast_to_c_highlight(ast.ast))
 

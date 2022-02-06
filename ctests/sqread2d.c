@@ -3,7 +3,7 @@
 #define M 4
 #define N 64
 
-char tab0[M][N] = {0};
+__attribute__ ((aligned (16))) char tab0[M][N] = {0};
 
 int main(void){
     int res = 0;

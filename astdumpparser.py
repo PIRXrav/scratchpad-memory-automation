@@ -19,12 +19,24 @@ class Node:
     inner = []
 
     def show(self, prefix):
-        classs = Style.BRIGHT + Style.DIM + Fore.GREEN + self.__class__.__name__ + Fore.RESET + Style.RESET_ALL
+        classs_raw = self.__class__.__name__
+        classs_color = Fore.RED
+        if classs_raw.endswith('Attr'):
+            classs_color = Fore.LIGHTBLUE_EX
+        elif classs_raw.endswith('Decl'):
+            classs_color = Fore.LIGHTGREEN_EX
+        elif classs_raw.endswith('Stmt'):
+            classs_color = Fore.LIGHTYELLOW_EX
+        classs = Style.BRIGHT + Style.DIM + classs_color + classs_raw + Fore.RESET + Style.RESET_ALL
         name = (Fore.LIGHTBLUE_EX + str(self.name) + Fore.RESET) if hasattr(self, 'name') and self.name != None else ''
-        type = (Fore.LIGHTRED_EX + str(self.type.rawdata) + Fore.RESET) if hasattr(self, 'type') and self.type != None else ''
+        type = (Fore.LIGHTRED_EX + str(self.type.rawdata['qualType']) + Fore.RESET + ' ') if hasattr(self, 'type') and self.type != None else ''
         value = (Fore.LIGHTYELLOW_EX + str(self.value) + Fore.RESET) if hasattr(self, 'value') and self.value != None else ''
-        valueCategory = (Fore.LIGHTWHITE_EX + str(self.valueCategory) + Fore.RESET) if hasattr(self, 'valueCategory') and self.valueCategory != None else ''
-        return prefix + f"{classs} > {type} {name}{value} {valueCategory} {self.doc()}\n" + ''.join(map(lambda x: x.show(prefix + ' | '), self.inner))
+        valueCategory = (' [' + Fore.LIGHTWHITE_EX + str(self.valueCategory) + Fore.RESET + '] ') if hasattr(self, 'valueCategory') and self.valueCategory != None else ''
+        storageClass = (Fore.LIGHTWHITE_EX + str(self.storageClass) + Fore.RESET + ' ') if hasattr(self, 'storageClass') and self.storageClass != None else ''
+
+      
+
+        return prefix + f"{classs} > {storageClass}{type}{name}{value}{valueCategory} {self.doc()}\n" + ''.join(map(lambda x: x.show(prefix + ' | '), self.inner))
 
     def doc(self):
         return ''
@@ -130,6 +142,9 @@ class FunctionDecl(Node):
         self.variadic = variadic
         self.inner = inner
     
+    def doc(self):
+        return f'{self.isImplicit=} {self.isUsed} {self.variadic=} {self.previousDecl=}'
+    
 
 class ParmVarDecl(Node):
     def __init__(self, loc=None, range=None, name=None, mangledName=None, type=None):
@@ -170,6 +185,11 @@ class InitListExpr(Node):
         self.type = type
         self.valueCategory = valueCategory
         self.array_filler = array_filler
+
+    def doc(self):
+        print(f'{self.array_filler=}')
+        
+
 
 class ImplicitValueInitExpr(Node):
     def __init__(self, range=None, type=None, valueCategory=None):
@@ -284,6 +304,19 @@ class CallExpr(Node):
 class ReturnStmt(Node):
     def __init__(self, range=None, inner=[]):
         self.range = range
+        self.inner = inner
+
+class AlignedAttr(Node):
+    def __init__(self, range=None, inner=None):
+        self.range = range
+        self.inner = inner
+
+class ConstantExpr(Node):
+    def __init__(self, range=None, type=None, valueCategory=None, value=None, inner=None):
+        self.range = range
+        self.type = type
+        self.valueCategory = valueCategory
+        self.value = value
         self.inner = inner
 
 class RawNode(Node):

@@ -1,3 +1,4 @@
+#include <stdio.h>
 
 #define M 4
 #define N 64
@@ -24,7 +25,7 @@ int main(void){
         printf("j = %d :\n", j);
     }
     */
-   
+
     // Read and Write
     for (int j = 0; j < M; j++){
         for (int i = 0; i < N; i++){

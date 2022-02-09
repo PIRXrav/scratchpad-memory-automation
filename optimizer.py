@@ -54,7 +54,6 @@ def dma_catch(dma, values):
     for i in range(len(dma)):
         if dma[i] in values:
             dma[i] = -1
-    # tensor.ravel()[linear_indexs] = -1 #
 
 def is_tensor_fully_catched(tensor):
     return np.all(tensor == -1)
@@ -64,7 +63,7 @@ dma_match = compare_dma(tensor_i_dma, tensor_o_dma)
 print(f'{dma_match=}')
 
 print(tensor_o)
-dma_catch(tensor_o_dma, dma_match)
+# dma_catch(tensor_o_dma, dma_match)
 print(tensor_i_dma, tensor_o_dma)
 
 is_tensor_fully_catched(tensor_o)
@@ -76,7 +75,6 @@ from itertools import product
 
 # Compute all combinations of @input, @output (we will use remove on it -> set)
 combination_dma_io = set(product(range(tensor_i.size), range(tensor_o.size)))
-
 combination_dma_io_valid = set()
 
 for comb in combination_dma_io:
@@ -104,19 +102,23 @@ print(f'{compute_available_next((0, 0), combination_dma_io_valid)=}')
 
 max_q = 0
 
+import sys
+import enlighten
 
-def compute(current_state, dma_i, dma_o, system_states, tensor_o, cost, dept, state_history):
+def compute(current_state, system_states, tensor_o, cost, dept, state_history, best, tk):
     s = '.' * dept + f'{np.sum(tensor_o==-1)}' + str(state_history)
 
     # print(f'{s:<80} hh')
     # print(dept, np.sum(tensor_o==-1), '/', tensor_o.size, tensor_o.ravel())
 
-    res = []
-    if dept > 16+1:
+    if cost > best[0]: # No the best
         return 
     # input()
     next_states = set(compute_available_next(current_state, system_states))
-    for i, state in enumerate(next_states):
+    
+    
+    for i, state in enumerate(progressbar(next_states, dept, tk)):
+
         # Simulate the new state:
         op_cost = 0
         if current_state[0] != state[0]: # Load input dma
@@ -124,10 +126,8 @@ def compute(current_state, dma_i, dma_o, system_states, tensor_o, cost, dept, st
         if current_state[1] != state[1]: # Load and store output dma
             op_cost += 2
         
-        
-        dma_i = dma_load(tensor_i, state[0])
-        dma_o = dma_load(tensor_o, state[1])
-        dma_match = compare_dma(dma_i, dma_o)
+
+        dma_match = compare_dma(dma_load(tensor_i, state[0]), dma_load(tensor_o, state[1]))
         # print(state, dma_i, dma_o, dma_match)
         if dma_match.size: # This state has interest
             next_tensor_o = np.copy(tensor_o) # We need to preserve the state
@@ -136,25 +136,90 @@ def compute(current_state, dma_i, dma_o, system_states, tensor_o, cost, dept, st
 
             state_history.append(state) # Lifo push
             if is_tensor_fully_catched(next_tensor_o):
-                print('HIT!!!', state_history, cost, dept)
+                
+                if best[0] > cost:
+                    best[0] = cost
+                    best[1] = np.copy(state_history)
+                    print('BEST HIT:', state_history, cost, dept)
                 
                 # return current_state
 
-            ress = compute(state, dma_i, dma_o, system_states - {state}, next_tensor_o, cost + op_cost, dept+1, state_history)
+            compute(state, system_states - {state}, next_tensor_o, cost + op_cost, dept+1, state_history, best, tk)
             state_history.pop() # Lifo pop
-            res.append(ress)
         else:
             pass
-    return res
+
+import time
+
+def progressbar_init(manager, names):
+    return [manager.counter(total=100, desc=n, unit=n, color="green") for n in names]
+    
+def progressbar(iterator, dept, tk):
+    if len(tk) > dept:
+        tk[dept].total = len(iterator)
+        tk[dept].count = 0
+        
+    for v in iterator:
+        if len(tk) > dept:
+            tk[dept].update()
+        yield v
+
+
+
+def compute_launch():
+    with enlighten.Manager() as manager:
+        tk = progressbar_init(manager, ("loop0", 'loop1'))
+        best = [999999, None]
+        compute((-1, -1),                 # Do not force initial state
+                combination_dma_io_valid, # All state te explore
+                tensor_o,                 # Default result
+                0, 0, [], best, tk)
+
+    return best
+
+best = [8, nparray([[ 4,  9],
+       [ 4, 12],
+       [ 4,  4],
+       [ 0,  4],
+       [ 0,  0]])]
 
 if 1:
-    compute((-1, -1),                 # Do not force initial state
-            None,                     # No DMA provided
-            None,                     #
-            combination_dma_io_valid, # All state te explore
-            tensor_o,                 # Default result
-            0, 0, [])
-
-        
+    best = compute_launch()    
 
 
+
+print(best)
+
+def export_algo(states, tensor_o):
+    state = [-1, -1]
+    prog = ''
+
+    def transactions(tensor_o):
+        prog = ''
+        dmai = dma_load(tensor_i, state[0])
+        dmao = dma_load(tensor_o, state[1])
+        for idmai, vi in enumerate(dmai):
+            for idmao, vo in enumerate(dmao):
+                if vi == vo:
+                    dmao[idmao] = -1 # In reality, copy value:
+                    prog += f'dma_o[{idmao}] = dma_i[{idmai}]\n' 
+        return prog
+
+    for i, o in states:
+        if state[0] != i:
+            prog += f'DMA_LD(dma_i, {i})\n'
+            state[0] = i
+            prog += transactions(tensor_o)
+        if state[1] != o:
+            if state[1] != -1: # Small optim
+                prog += f'DMA_ST(dma_o, {state[1]})\n'
+
+            prog += f'DMA_LD(dma_o, {o})\n'
+            state[1] = o
+            prog += transactions(tensor_o)
+
+
+    return prog
+
+prog = export_algo(best[1], tensor_o)
+print(prog)

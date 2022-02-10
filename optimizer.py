@@ -1,24 +1,14 @@
-
-# Analyse memory transaction during toeplitz transformation
+"""
+Analyse memory transaction during toeplitz transformation
+"""
 
 import numpy as np
-
 import sys
 import enlighten
 from itertools import product
+import time
+from numba import jit
 
-
-# Input
-x = 3
-y = 3
-tensor_i = np.arange(x*y, dtype=np.int32).reshape(y, x) # tab[index] = index !!
-print(tensor_i)
-
-# Filter shape
-Dkx = 2
-Dky = 2
-
-    
 # use 5 word DMA buffer
 DMA = 5
 
@@ -47,18 +37,8 @@ def dma_store(tensor, addr, dma):
 def compare_dma(dma_i, dma_o):
     return np.intersect1d(dma_i, dma_o)
 
-def dma_catch(dma, values):
-    # Beark !
-    for i in range(len(dma)):
-        if dma[i] in values:
-            dma[i] = -1
-
 def is_tensor_fully_catched(tensor):
     return np.all(tensor == -1)
-
-tensor_o = toeplitz(tensor_i, Dky, Dkx)
-print(tensor_o)
-print(tensor_o.shape)
 
 # print(f'{dma_load(tensor_i, 0)=}')
 # print(f'{dma_load(tensor_i, 4)=}')
@@ -73,13 +53,10 @@ print(tensor_o.shape)
 # print(f'{dma_match=}')
 
 # print(tensor_o)
-# dma_catch(tensor_o_dma, dma_match)
 # print(tensor_i_dma, tensor_o_dma)
 
 # is_tensor_fully_catched(tensor_o)
 # print(tensor_o)
-
-from numba import jit
 
 
 def progressbar_init(manager, names):
@@ -220,7 +197,7 @@ def algo0FullExploreNumba(y, x, Dky, Dkx):
                 best_history_cost_dept[0] = cost
                 best_history_cost_dept[1] = dept
                 best_history_stack[:dept] = history_stack[:dept]
-                # print(f'HIT [{cost}/{dept}] :', best_history_stack[:dept])
+                print(f'HIT [{cost}/{dept}] :', best_history_stack[:dept])
             return
 
         # for i, state in enumerate(progressbar(next_states, dept, tk)):
@@ -462,13 +439,24 @@ def evaluate_prog(prog, input_size, output_size):
     print(f'         sto_quality : {output_size/(count_sto*DMA)}')
     
 
-import time
+
+
+# Input
+x = 3
+y = 3
+
+# Filter shape
+Dkx = 2
+Dky = 2
 
 best = [10, np.array([(4, 9), (4, 12), (4, 4), (0, 4), (0, 0)])]
 tensor_i = np.arange(x*y, dtype=np.int32).reshape(y, x) # tab[index] = index !!
 tensor_o = toeplitz(tensor_i, Dky, Dkx)
 
-if 1:
+print(tensor_i)
+print(tensor_o)
+
+if 0:
     start_time = time.time()
     best = algo0(y, x, Dky, Dkx)
     print(best)

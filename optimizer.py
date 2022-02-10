@@ -175,45 +175,125 @@ def algo0(y, x, Dky, Dkx):
     tensor_i = np.arange(x*y, dtype=np.int32).reshape(y, x) # tab[index] = index !!
     tensor_o = toeplitz(tensor_i, Dky, Dkx)
 
-   
+    # Compute all combinations of @input, @output (we will use remove on it -> set)
+    combination_dma_io = list(product(range(tensor_i.size - DMA + 1), range(tensor_o.size - DMA + 1)))
+    combination_dma_io_valid = set()
 
-    best = [10, np.array([(4, 9), (4, 12), (4, 4), (0, 4), (0, 0)])]
-    if 1:
-        # Compute all combinations of @input, @output (we will use remove on it -> set)
-        combination_dma_io = list(product(range(tensor_i.size - DMA + 1), range(tensor_o.size - DMA + 1)))
-        combination_dma_io_valid = set()
+    # Remove comb without interest
+    for comb in combination_dma_io:
+        tensor_i_dma = dma_load(tensor_i, comb[0])
+        tensor_o_dma = dma_load(tensor_o, comb[1])
+        diff = compare_dma(tensor_i_dma, tensor_o_dma)
+        if diff.size:
+            combination_dma_io_valid.add(comb)
+    # print(list(combination_dma_io))
+    
+    def state_eval(comb):
+        tensor_i_dma = dma_load(tensor_i, comb[0])
+        tensor_o_dma = dma_load(tensor_o, comb[1])
+        for idmai, vi in enumerate(tensor_i_dma):
+            for idmao, vo in enumerate(tensor_o_dma):
+                if vi == vo:
+                    yield comb[1] + idmao
 
-        # Remove comb without interest
-        for comb in combination_dma_io:
-            tensor_i_dma = dma_load(tensor_i, comb[0])
-            tensor_o_dma = dma_load(tensor_o, comb[1])
-            diff = compare_dma(tensor_i_dma, tensor_o_dma)
-            if diff.size:
-                combination_dma_io_valid.add(comb)
-        # print(list(combination_dma_io))
-        
-        def state_eval(comb):
-            tensor_i_dma = dma_load(tensor_i, comb[0])
-            tensor_o_dma = dma_load(tensor_o, comb[1])
-            for idmai, vi in enumerate(tensor_i_dma):
-                for idmao, vo in enumerate(tensor_o_dma):
-                    if vi == vo:
-                        yield comb[1] + idmao
-
-        with enlighten.Manager() as manager:
-            history_stack = [None for _ in combination_dma_io_valid]
-            state_eval_all = [[list(state_eval((i, j))) for j in range(tensor_o.size - DMA + 1)] for i in range(tensor_i.size - DMA + 1)]
-            tk = progressbar_init(manager, ("loop0", 'loop1'))
-            best = [999999, None]
-            compute((-1, -1),                 # Do not force initial state
-                    combination_dma_io_valid, # All state te explore
-                    tensor_o,                 # Default result
-                    0, 0, history_stack, best, state_eval_all)
-        
-    prog = export_algo(best[1], tensor_o)
-    return best, tensor_i, tensor_o, prog
+    with enlighten.Manager() as manager:
+        history_stack = [None for _ in combination_dma_io_valid]
+        state_eval_all = [[list(state_eval((i, j))) for j in range(tensor_o.size - DMA + 1)] for i in range(tensor_i.size - DMA + 1)]
+        tk = progressbar_init(manager, ("loop0", 'loop1'))
+        best = [999999, None]
+        compute((-1, -1),                 # Do not force initial state
+                combination_dma_io_valid, # All state te explore
+                tensor_o,                 # Default result
+                0, 0, history_stack, best, state_eval_all)
+    return best
 
 from copy import copy, deepcopy
+
+def algo0FullExploreNumba(y, x, Dky, Dkx):
+   
+    @jit(nopython=True)
+    def compute(current_state, system_states, system_states_iterator, system_states_iterator_row_col,
+                tensor_o, cost, dept, history_stack, best_history_cost_dept, best_history_stack):
+
+        if np.all(tensor_o == -1): # Done
+            if cost < best_history_cost_dept[0]:
+                best_history_cost_dept[0] = cost
+                best_history_cost_dept[1] = dept
+                best_history_stack[:dept] = history_stack[:dept]
+                # print(f'HIT [{cost}/{dept}] :', best_history_stack[:dept])
+            return
+
+        # for i, state in enumerate(progressbar(next_states, dept, tk)):
+        state_iterator = system_states_iterator if current_state[0] != -1 else system_states_iterator_row_col[current_state[0]][current_state[1]]
+
+        
+        for istate, state in enumerate(state_iterator):
+            # if dept == 0:
+            #     print(f"[{istate}/{len(state_iterator)}]")
+    
+            if system_states[state[0]][state[1]] == 0:
+                continue
+
+            # Evaluate cost:
+            new_cost = cost
+            if current_state[0] != state[0]: # Load input dma
+                new_cost += 1
+            if current_state[1] != state[1]: # Load and store output dma
+                new_cost += 2
+            
+            if new_cost > best_history_cost_dept[0]: # or new_cost > 10: # No the best
+                return          
+
+            # Apply modifications
+            system_states[state[0]][state[1]] = 0 # Visited
+            next_tensor_o = np.copy(tensor_o) # We need to preserve the state
+            history_stack[dept] = state # stack push
+            for vi in range(state[0], state[0] + DMA):
+                for itensoro in range(state[1], state[1] + DMA):
+                    if vi == next_tensor_o.ravel()[itensoro]:
+                        next_tensor_o.ravel()[itensoro] = -1
+
+            compute(state, system_states, system_states_iterator, system_states_iterator_row_col,
+                    next_tensor_o, new_cost, dept+1, history_stack, best_history_cost_dept, best_history_stack)
+            
+            # Restore modifications
+            system_states[state[0]][state[1]] = 1 # Unvisited
+
+    tensor_i = np.arange(x*y, dtype=np.int32).reshape(y, x) # tab[index] = index !!
+    tensor_o = toeplitz(tensor_i, Dky, Dkx)
+
+    def rowcol_iterator(i, j, tensor):
+        for jj in range(tensor.shape[1]):
+            if (j != jj):
+                yield (i, jj)
+        for ii in range(tensor.shape[0]):
+            if (i != ii):
+                yield (ii, j)
+              
+    nb_comb = (tensor_i.size - DMA + 1) * (tensor_o.size - DMA + 1)
+    history_stack = np.zeros((nb_comb, 2), dtype=np.int32)
+    best_history_stack = np.zeros((nb_comb, 2), dtype=np.int32) 
+    best_history_cost_dept = np.array([999999, 0])
+
+    system_states = np.ones((tensor_i.size - DMA + 1, tensor_o.size - DMA + 1), dtype=np.int32)
+    print(system_states)
+    system_states_iterator = np.array(list(product(range(system_states.shape[0]), range(system_states.shape[1]))), dtype=np.int32)
+    print(f'{system_states_iterator.shape=} # {np.prod(system_states_iterator.shape)}')
+    system_states_iterator_row_col = np.array([[list(rowcol_iterator(i, j, system_states)) for i in range(tensor_i.size - DMA + 1)] for j in range(tensor_o.size - DMA + 1)], dtype=np.int32)
+    # (tensor_i.size - DMA + 1,
+    #  tensor_o.size - DMA + 1, 
+    #  tensor_i.size - DMA + 1 + tensor_o.size - DMA + 1 (-2),
+    #  2)
+    print(f'{system_states_iterator_row_col.shape=} # {np.prod(system_states_iterator_row_col.shape)}')
+    
+    compute(np.array([-1, -1]),                 # Do not force initial state
+            system_states, system_states_iterator, system_states_iterator_row_col, # All state te explore
+            tensor_o,                 # Default result
+            0, 0, history_stack, best_history_cost_dept, best_history_stack)
+    
+    best = [best_history_cost_dept[0], best_history_stack[:best_history_cost_dept[1]]]
+
+    return best
 
 def algo1(y, x, Dky, Dkx):
     """ ALGO 1 """
@@ -383,11 +463,29 @@ def evaluate_prog(prog, input_size, output_size):
     
 
 import time
-start_time = time.time()
-best, tensor_i, tensor_o, prog = algo0(y, x, Dky, Dkx)
-print("--- algo0 : %s seconds ---" % (time.time() - start_time))
 
-evaluate_prog(prog, 9, 16)
+best = [10, np.array([(4, 9), (4, 12), (4, 4), (0, 4), (0, 0)])]
+tensor_i = np.arange(x*y, dtype=np.int32).reshape(y, x) # tab[index] = index !!
+tensor_o = toeplitz(tensor_i, Dky, Dkx)
+
+if 1:
+    start_time = time.time()
+    best = algo0(y, x, Dky, Dkx)
+    print(best)
+    prog = export_algo(best[1], tensor_o)
+    evaluate_prog(prog, 9, 16)
+    print("--- algo0 : %s seconds ---" % (time.time() - start_time))
+
+if 1:
+    start_time = time.time()
+    best = algo0FullExploreNumba(y, x, Dky, Dkx)
+    best[1] = list(map(tuple, best[1]))
+    print(best)
+    prog = export_algo(best[1], tensor_o)
+    evaluate_prog(prog, 9, 16)
+    print("--- algo0FullExploreNumba : %s seconds ---" % (time.time() - start_time))
+
+# evaluate_prog(prog, 9, 16)
 
 # algo1(y, x, Dky, Dkx)
 # algo2(y, x, Dky, Dkx)

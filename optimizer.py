@@ -111,10 +111,22 @@ def algo0(y, x, Dky, Dkx):
     def compute(current_state, system_states, tensor_o, cost, dept, history_stack, best, state_eval_all):
 
         # Heuristique
-        def compute_available_next(cur: tuple[int, int], combs: set) -> list:
+        def compute_available_next(cur, combs):
+            # return combs
+            ret = None 
             if cur == (-1, -1):
-                return combs
-            return set(filter(lambda x: x[0] == cur[0] or x[1] == cur[1], combs))
+                ret = combs
+            else:
+                ret = filter(lambda x: x[0] == cur[0] or x[1] == cur[1], combs)
+            return ret
+
+
+        def heuristique(states):
+            states = list(states)
+            max_add = lambda x: -np.sum(tensor_o.ravel()[state_eval_all[x[0]][x[1]]] != -1)
+            states.sort(key = max_add)
+            states = states[:max(3, len(states)//(dept+20))] # states[:max(3, len(states)//(dept+20))]
+            return states
 
         if np.all(tensor_o == -1): # Done
             if cost < best[0]:
@@ -123,7 +135,7 @@ def algo0(y, x, Dky, Dkx):
                 print(f'HIT [{cost}/{dept}] :', best[1])
             return
 
-        next_states = list(compute_available_next(current_state, system_states))
+        next_states = heuristique(compute_available_next(current_state, system_states))
 
         for i, state in enumerate(progressbar(next_states, dept, tk)):
         # for i, state in enumerate(next_states):
@@ -176,7 +188,7 @@ def algo0(y, x, Dky, Dkx):
     with enlighten.Manager() as manager:
         history_stack = [None for _ in combination_dma_io_valid]
         state_eval_all = [[list(state_eval((i, j))) for j in range(tensor_o.size - DMA + 1)] for i in range(tensor_i.size - DMA + 1)]
-        tk = progressbar_init(manager, ("loop0", 'loop1'))
+        tk = progressbar_init(manager, [f'l{k}' for k in range(10)])
         best = [999999, None]
         compute((-1, -1),                 # Do not force initial state
                 combination_dma_io_valid, # All state te explore
@@ -188,7 +200,7 @@ from copy import copy, deepcopy
 
 def algo0FullExploreNumba(y, x, Dky, Dkx):
    
-    @jit(nopython=True)
+    @jit(nopython=True, parallel=True)
     def compute(current_state, system_states, system_states_iterator, system_states_iterator_row_col,
                 tensor_o, cost, dept, history_stack, best_history_cost_dept, best_history_stack):
 
@@ -442,8 +454,8 @@ def evaluate_prog(prog, input_size, output_size):
 
 
 # Input
-x = 3
-y = 3
+x = 4
+y = 4
 
 # Filter shape
 Dkx = 2
@@ -456,7 +468,7 @@ tensor_o = toeplitz(tensor_i, Dky, Dkx)
 print(tensor_i)
 print(tensor_o)
 
-if 0:
+if 1:
     start_time = time.time()
     best = algo0(y, x, Dky, Dkx)
     print(best)
@@ -464,7 +476,7 @@ if 0:
     evaluate_prog(prog, 9, 16)
     print("--- algo0 : %s seconds ---" % (time.time() - start_time))
 
-if 1:
+if 0:
     start_time = time.time()
     best = algo0FullExploreNumba(y, x, Dky, Dkx)
     best[1] = list(map(tuple, best[1]))

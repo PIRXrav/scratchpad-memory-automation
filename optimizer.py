@@ -288,53 +288,46 @@ def algo1(y, x, Dky, Dkx):
     """ ALGO 1 """
     tensor_i = np.arange(x*y, dtype=np.int32).reshape(y, x) # tab[index] = index !!
     tensor_o = toeplitz(tensor_i, Dky, Dkx)
-
     
-    # Compute all combinations of @input, @output (we will use remove on it -> set)
-    combination_dma_io = list(product(range(tensor_i.size - DMA + 1), range(tensor_o.size - DMA + 1)))
-    print(list(combination_dma_io))
+    
+    # print(list(combination_dma_io))
     def state_eval(comb):
-        tensor_i_dma = dma_load(tensor_i, comb[0])
         tensor_o_dma = dma_load(tensor_o, comb[1])
-        for idmai, vi in enumerate(tensor_i_dma):
-            for idmao, vo in enumerate(tensor_o_dma):
-                if vi == vo:
-                    yield comb[1] + idmao
+        for idmao, vo in enumerate(tensor_o_dma):
+            if vo >= comb[0] and vo < comb[0] + DMA:
+                yield comb[1] + idmao
 
 
     # for comb in combination_dma_io:
     #    print(f'{comb} -> {list(state_eval(comb))}')
-    return 
-    state_eval_all = [[set(state_eval((i, j))) for j in range(tensor_o.size - DMA + 1)] for i in range(tensor_i.size - DMA + 1)]
 
-    
+    # Compute all combinations of @input, @output (we will use remove on it -> set)
+    print("Compute combination_dma_io ...", end='', flush=True)
+    combination_dma_io = list(product(range(tensor_i.size - DMA + 1), range(tensor_o.size - DMA + 1)))
+    print(f'DONE #comb = {len(combination_dma_io)}')   
+    print("Compute index_to_states ...", end='', flush=True)
     index_to_states = [set() for _ in range(tensor_o.size)]
+    pbar = enlighten.Counter(total=len(combination_dma_io), unit='ticks')
     for state in combination_dma_io:
+        pbar.update()
         for v in state_eval(state):
             index_to_states[v].add(state)
+    print('DONE')
 
-    def explore(index_to_states, path, history, dept, tk):       
-
-        def hist_is_prefix(path, history):
-            for hist in history:
-                is_prefix = True
-                for h in history:
-                    if not h in path:
-                        is_prefix = False
-                        break
-                if is_prefix:
-                    return True
-                
-            return False
-                    
-        # if hist_is_prefix(path, history):
-        #     return
+    def explore(index_to_states, path, history, dept):       
         
+        if dept >= history[0]:
+            return
+            
+
         valcount = np.array(list(map(len, index_to_states)))
+
         # print(valcount)
         if np.all(valcount == 0): # DONE
-            print(f'HIT! : {dept} {path}')
-            history.append(set(path))
+            if dept < history[0]:
+                print(f'HIT! : {dept} {path}')
+                history[0] = dept
+                history[1] = np.copy(path)
             return
 
         # Find the essential states
@@ -345,10 +338,19 @@ def algo1(y, x, Dky, Dkx):
             indx = np.where(valcount != 0)[0]
         
         def get_states(indx):
-            for ind in indx:
-                for sel_state in index_to_states[ind]:
+            # Heuristic
+            indx = list(indx)
+            indx.sort(key=lambda i: len(index_to_states[i]))
+            indx = indx[:1] # Explone the most criticals index
+            # for ind in indx:
+            for ind in indx: 
+                states = list(index_to_states[ind])
+                states.sort(key = lambda s: -np.sum([s in index_to_states[k] for k in range(tensor_o.size)]))
+                states = states[:1] # Explone the most usefull states
+
+                for sel_state in states:
                     yield sel_state
-        
+
         for sel_state in progressbar(set(get_states(indx)), dept, tk):
                 # print(ind, sel_state)
                 index_to_states_new = deepcopy(index_to_states) # AYA 
@@ -356,12 +358,45 @@ def algo1(y, x, Dky, Dkx):
                 # update state_result (remove catched values)
                 for i in state_eval_all[sel_state[0]][sel_state[1]]:
                     index_to_states_new[i] = set()
-                explore(index_to_states_new, path, history, dept+1, tk)
+                explore(index_to_states_new, path, history, dept+1)
                 path.pop()
     
-    with enlighten.Manager() as manager:
-        tk = progressbar_init(manager, ("loop0", 'loop1', 'loop3', 'loop4'))
-        explore(index_to_states, [], [], 0, tk)
+
+    def fast_explore(index_to_states):
+        path = []
+        dept = 0
+        indx = list(range(tensor_o.size))
+        
+        while not np.all(np.array(list(map(len, index_to_states))) == 0):
+            dept += 1
+            print(dept)
+            ind = min(filter(lambda i: len(index_to_states[i]) != 0, indx), key=lambda i: len(index_to_states[i]))
+            # Explone the most usefull state
+            sel_state = min(index_to_states[ind], key = lambda s: -np.sum([s in index_to_states[k] for k in range(tensor_o.size)]))
+            print(sel_state)
+            path.append(sel_state)
+            # update state_result (remove catched values)
+            for i in state_eval(sel_state):
+                index_to_states[i] = set()
+
+        # print(f'HIT! : {dept} {path}')
+        return [dept, path]
+
+    if 0:
+        with enlighten.Manager() as manager:
+            print("Compute state_eval_all ...", end='', flush=True)
+            state_eval_all = [[set(state_eval((i, j))) for j in range(tensor_o.size - DMA + 1)] for i in range(tensor_i.size - DMA + 1)]
+            print('DONE')
+            best = [99999, None]
+            tk = progressbar_init(manager, [f"l{k}" for k in range(10)])
+            explore(index_to_states, [], best, 0)
+    else:
+        best = fast_explore(index_to_states)
+    return best
+
+  
+    
+    return best
 
 
     # print(state_result)
@@ -454,8 +489,8 @@ def evaluate_prog(prog, input_size, output_size):
 
 
 # Input
-x = 4
-y = 4
+x = 8
+y = 8
 
 # Filter shape
 Dkx = 2
@@ -468,7 +503,7 @@ tensor_o = toeplitz(tensor_i, Dky, Dkx)
 print(tensor_i)
 print(tensor_o)
 
-if 1:
+if 0:
     start_time = time.time()
     best = algo0(y, x, Dky, Dkx)
     print(best)
@@ -484,6 +519,15 @@ if 0:
     prog = export_algo(best[1], tensor_o)
     evaluate_prog(prog, 9, 16)
     print("--- algo0FullExploreNumba : %s seconds ---" % (time.time() - start_time))
+
+
+if 1:
+    start_time = time.time()
+    best = algo1(y, x, Dky, Dkx)
+    print(best)
+    prog = export_algo(best[1], tensor_o)
+    evaluate_prog(prog, 9, 16)
+    print("--- algo1 : %s seconds ---" % (time.time() - start_time))
 
 # evaluate_prog(prog, 9, 16)
 

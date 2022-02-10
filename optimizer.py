@@ -95,58 +95,62 @@ def progressbar(iterator, dept, tk):
             tk[dept].update()
         yield v
 
+def export_algo(states, tensor_o):
+    state = [-1, -1]
+    prog = []
+
+    def transactions(tensor_o):
+        dmai = dma_load(tensor_i, state[0])
+        dmao = dma_load(tensor_o, state[1])
+        for idmai, vi in enumerate(dmai):
+            for idmao, vo in enumerate(dmao):
+                if vi == vo:
+                    dmao[idmao] = -1 # In reality, copy value:
+                    prog.append(('mv', idmai, idmao)) #  += f'dma_o[{idmao}] = dma_i[{idmai}]\n' 
+        return prog
+
+    for i, o in states:
+        if state[0] != i:
+            prog.append(('ldi', i))
+            # prog += f'DMA_LD(dma_i, {i})\n'
+            state[0] = i
+            transactions(tensor_o)
+
+        if state[1] != o:
+            if state[1] != -1: # Small optim
+                prog.append(('sto', state[1]))
+                # prog += f'DMA_ST(dma_o, {state[1]})\n'
+            prog.append(('ldo', o))
+            # prog += f'DMA_LD(dma_o, {o})\n'
+            state[1] = o
+            transactions(tensor_o)
+    
+    prog.append(('sto', o))
+    assert np.all(tensor_o == -1)
+    return prog
+
 def algo0(y, x, Dky, Dkx):
-    tensor_i = np.arange(x*y, dtype=np.int32).reshape(y, x) # tab[index] = index !!
-    tensor_o = toeplitz(tensor_i, Dky, Dkx)
+    
+    def compute(current_state, system_states, tensor_o, cost, dept, history_stack, best, state_eval_all):
 
-    # Compute all combinations of @input, @output (we will use remove on it -> set)
-    combination_dma_io = list(product(range(tensor_i.size - DMA + 1), range(tensor_o.size - DMA + 1)))
-    combination_dma_io_valid = set()
+        # Heuristique
+        def compute_available_next(cur: tuple[int, int], combs: set) -> list:
+            if cur == (-1, -1):
+                return combs
+            return set(filter(lambda x: x[0] == cur[0] or x[1] == cur[1], combs))
 
-    # Remove comb without interest
-    for comb in combination_dma_io:
-        tensor_i_dma = dma_load(tensor_i, comb[0])
-        tensor_o_dma = dma_load(tensor_o, comb[1])
-        diff = compare_dma(tensor_i_dma, tensor_o_dma)
-        if diff.size:
-            # TEST INDEX
-            indexs = []
-            for idmai, vi in enumerate(tensor_i_dma):
-                for idmao, vo in enumerate(tensor_o_dma):
-                    if vi == vo:
-                        indexs.append(comb[1]+idmao)
-            # END TEST
-            # print(f'{comb}: {tensor_i_dma} && {tensor_o_dma} = {diff} ---> {indexs})')
-            combination_dma_io_valid.add(comb)
-       
+        if np.all(tensor_o == -1): # Done
+            if cost < best[0]:
+                best[0] = cost
+                best[1] = history_stack[:dept]
+                print(f'HIT [{cost}/{dept}] :', best[1])
+            return
 
-    # Heuristique
-    def compute_available_next(cur: tuple[int, int], combs: set) -> list:
-        if cur == (-1, -1):
-            return combs
-        return set(filter(lambda x: x[0] == cur[0] or x[1] == cur[1], combs))
+        next_states = list(compute_available_next(current_state, system_states))
 
-
-    # print(f'{combination_dma_io=}')
-    # Tous les états du système ou les DMA matchs !
-    # print(f'{combination_dma_io_valid=}')
-    # print(f'{compute_available_next((0, 0), combination_dma_io_valid)=}')
-
-
-    def compute(current_state, system_states, tensor_o, cost, dept, state_history, best, tk):
-        s = '.' * dept + f'{np.sum(tensor_o==-1)}' + str(state_history)
-
-        # print(f'{s:<80} hh')
-        # print(dept, np.sum(tensor_o==-1), '/', tensor_o.size, tensor_o.ravel())
-
-        if cost > best[0]: # No the best
-            return 
-        # input()
-        next_states = set(compute_available_next(current_state, system_states))
-        
-        
         for i, state in enumerate(progressbar(next_states, dept, tk)):
-
+        # for i, state in enumerate(next_states):
+            # print(f'{current_state} -> {state}')
             # Simulate the new state:
             new_cost = cost
             if current_state[0] != state[0]: # Load input dma
@@ -154,73 +158,58 @@ def algo0(y, x, Dky, Dkx):
             if current_state[1] != state[1]: # Load and store output dma
                 new_cost += 2
             
-
-            dma_match = compare_dma(dma_load(tensor_i, state[0]), dma_load(tensor_o, state[1]))
-            # print(state, dma_i, dma_o, dma_match)
-            if dma_match.size: # This state has interest
+            if new_cost > best[0]: # or new_cost > 10: # No the best
+                return
+            
+            catched_index = state_eval_all[state[0]][state[1]]
+            catched_value = tensor_o.ravel()[catched_index]
+            is_not_match = np.all(catched_value == -1)
+            
+            if not is_not_match: # This state has interest (NOT TRUE, but speed up a lot)
+                # Apply modifications
                 next_tensor_o = np.copy(tensor_o) # We need to preserve the state
-                dma_o = dma_load(next_tensor_o, state[1]) # Get the new reference
-                dma_catch(dma_o, dma_match) # Catch
+                history_stack[dept] = state # stack push
+                next_tensor_o.ravel()[catched_index] = -1
+                compute(state, system_states - {state}, next_tensor_o, new_cost, dept+1, history_stack, best, state_eval_all)
 
-                state_history.append(state) # Lifo push
-                if is_tensor_fully_catched(next_tensor_o):
-                    
-                    if best[0] > new_cost:
-                        best[0] = new_cost
-                        best[1] = np.copy(state_history)
-                        print('BEST HIT:', state_history, new_cost, dept)
-                    
-                    # return current_state
+    tensor_i = np.arange(x*y, dtype=np.int32).reshape(y, x) # tab[index] = index !!
+    tensor_o = toeplitz(tensor_i, Dky, Dkx)
 
-                compute(state, system_states - {state}, next_tensor_o, new_cost, dept+1, state_history, best, tk)
-                state_history.pop() # Lifo pop
-            else:
-                pass
-
-    def export_algo(states, tensor_o):
-        state = [-1, -1]
-        prog = []
-
-        def transactions(tensor_o):
-            dmai = dma_load(tensor_i, state[0])
-            dmao = dma_load(tensor_o, state[1])
-            for idmai, vi in enumerate(dmai):
-                for idmao, vo in enumerate(dmao):
-                    if vi == vo:
-                        dmao[idmao] = -1 # In reality, copy value:
-                        prog.append(('mv', idmai, idmao)) #  += f'dma_o[{idmao}] = dma_i[{idmai}]\n' 
-            return prog
-
-        for i, o in states:
-            if state[0] != i:
-                prog.append(('ldi', i))
-                # prog += f'DMA_LD(dma_i, {i})\n'
-                state[0] = i
-                transactions(tensor_o)
-
-            if state[1] != o:
-                if state[1] != -1: # Small optim
-                    prog.append(('sto', state[1]))
-                    # prog += f'DMA_ST(dma_o, {state[1]})\n'
-                prog.append(('ldo', o))
-                # prog += f'DMA_LD(dma_o, {o})\n'
-                state[1] = o
-                transactions(tensor_o)
-        
-        prog.append(('sto', o))
-        assert np.all(tensor_o == -1)
-        return prog
+   
 
     best = [10, np.array([(4, 9), (4, 12), (4, 4), (0, 4), (0, 0)])]
-    if 0:
+    if 1:
+        # Compute all combinations of @input, @output (we will use remove on it -> set)
+        combination_dma_io = list(product(range(tensor_i.size - DMA + 1), range(tensor_o.size - DMA + 1)))
+        combination_dma_io_valid = set()
+
+        # Remove comb without interest
+        for comb in combination_dma_io:
+            tensor_i_dma = dma_load(tensor_i, comb[0])
+            tensor_o_dma = dma_load(tensor_o, comb[1])
+            diff = compare_dma(tensor_i_dma, tensor_o_dma)
+            if diff.size:
+                combination_dma_io_valid.add(comb)
+        # print(list(combination_dma_io))
+        
+        def state_eval(comb):
+            tensor_i_dma = dma_load(tensor_i, comb[0])
+            tensor_o_dma = dma_load(tensor_o, comb[1])
+            for idmai, vi in enumerate(tensor_i_dma):
+                for idmao, vo in enumerate(tensor_o_dma):
+                    if vi == vo:
+                        yield comb[1] + idmao
+
         with enlighten.Manager() as manager:
+            history_stack = [None for _ in combination_dma_io_valid]
+            state_eval_all = [[list(state_eval((i, j))) for j in range(tensor_o.size - DMA + 1)] for i in range(tensor_i.size - DMA + 1)]
             tk = progressbar_init(manager, ("loop0", 'loop1'))
             best = [999999, None]
             compute((-1, -1),                 # Do not force initial state
                     combination_dma_io_valid, # All state te explore
                     tensor_o,                 # Default result
-                    0, 0, [], best, tk)
-
+                    0, 0, history_stack, best, state_eval_all)
+        
     prog = export_algo(best[1], tensor_o)
     return best, tensor_i, tensor_o, prog
 
@@ -234,7 +223,7 @@ def algo1(y, x, Dky, Dkx):
     
     # Compute all combinations of @input, @output (we will use remove on it -> set)
     combination_dma_io = list(product(range(tensor_i.size - DMA + 1), range(tensor_o.size - DMA + 1)))
-
+    print(list(combination_dma_io))
     def state_eval(comb):
         tensor_i_dma = dma_load(tensor_i, comb[0])
         tensor_o_dma = dma_load(tensor_o, comb[1])
@@ -242,6 +231,11 @@ def algo1(y, x, Dky, Dkx):
             for idmao, vo in enumerate(tensor_o_dma):
                 if vi == vo:
                     yield comb[1] + idmao
+
+
+    # for comb in combination_dma_io:
+    #    print(f'{comb} -> {list(state_eval(comb))}')
+    return 
     state_eval_all = [[set(state_eval((i, j))) for j in range(tensor_o.size - DMA + 1)] for i in range(tensor_i.size - DMA + 1)]
 
     
@@ -326,6 +320,46 @@ def algo1(y, x, Dky, Dkx):
     # print(state_result)
 
 
+def algo2(y, x, Dky, Dkx):
+    """ ALGO 2 """
+    tensor_i = np.arange(x*y, dtype=np.int32).reshape(y, x) # tab[index] = index !!
+    tensor_o = toeplitz(tensor_i, Dky, Dkx)
+
+    
+    # Compute all combinations of @input, @output (we will use remove on it -> set)
+    combination_dma_io = list(product(range(tensor_i.size - DMA + 1), range(tensor_o.size - DMA + 1)))
+    print(list(combination_dma_io))
+    def state_eval(comb):
+        tensor_i_dma = dma_load(tensor_i, comb[0])
+        tensor_o_dma = dma_load(tensor_o, comb[1])
+        for idmai, vi in enumerate(tensor_i_dma):
+            for idmao, vo in enumerate(tensor_o_dma):
+                if vi == vo:
+                    yield comb[1] + idmao
+
+    state_eval_all = [[set(state_eval((i, j))) for j in range(tensor_o.size - DMA + 1)] for i in range(tensor_i.size - DMA + 1)]
+    for comb in combination_dma_io:
+        print(f'{comb} -> {list(state_eval(comb))}')
+
+    state_eval_i = [set() for _ in range(tensor_i.size - DMA + 1)]
+    for i, s in enumerate(state_eval_i):
+        for o in range(tensor_o.size - DMA + 1):
+            for v in state_eval_all[i][o]:
+                state_eval_i[i].add(v)
+    
+    for i, s in enumerate(state_eval_i):
+        print(f'i:{i} -> {s}')
+
+    state_eval_o = [set() for _ in range(tensor_o.size - DMA + 1)]
+    for o, s in enumerate(state_eval_o):
+        for i in range(tensor_i.size - DMA + 1):
+            for v in state_eval_all[i][o]:
+                state_eval_o[o].add(v)
+    
+    for o, s in enumerate(state_eval_o):
+        print(f'o:{o} -> {s}')
+
+    
 def evaluate_prog(prog, input_size, output_size):
     mvcount = len(list(filter(lambda x:x[0] == 'mv', prog)))
     dmacount = len(prog) - mvcount
@@ -348,8 +382,12 @@ def evaluate_prog(prog, input_size, output_size):
     print(f'         sto_quality : {output_size/(count_sto*DMA)}')
     
 
-    
+import time
+start_time = time.time()
 best, tensor_i, tensor_o, prog = algo0(y, x, Dky, Dkx)
+print("--- algo0 : %s seconds ---" % (time.time() - start_time))
+
 evaluate_prog(prog, 9, 16)
 
-algo1(y, x, Dky, Dkx)
+# algo1(y, x, Dky, Dkx)
+# algo2(y, x, Dky, Dkx)

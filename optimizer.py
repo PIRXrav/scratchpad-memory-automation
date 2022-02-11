@@ -24,7 +24,7 @@ def profile(func):
     return ret
 
 # use 5 word DMA buffer
-DMA = 16
+DMA = 5
 
 def toeplitz(tensor_i, Dky, Dkx):
     # Toeplitz matrix
@@ -341,28 +341,32 @@ def algo1(y, x, Dky, Dkx):
             indx = np.where(valcount != 0)[0]
         
         def get_states(indx):
+            global indd
             # Heuristic
             indx = list(indx)
             indx.sort(key=lambda i: len(index_to_states[i]))
             indx = indx[:1] # Explone the most criticals index
+            # indx = [min(indx, key=lambda i: len(index_to_states[i]))]
             # for ind in indx:
             for ind in indx: 
+                indd = ind
                 states = list(index_to_states[ind])
+                # print(states)
                 states.sort(key = lambda s: -np.sum([s in index_to_states[k] for k in range(tensor_o.size)]))
                 states = states[:1] # Explone the most usefull states
-
+                #states = [min(states, key=lambda s: -np.sum([s in index_to_states[k] for k in range(tensor_o.size)]))]
                 for sel_state in states:
+                    # print(f'{ind:5} {sel_state}')
                     yield sel_state
 
         for sel_state in progressbar(set(get_states(indx)), dept, tk):
-                # print(ind, sel_state)
-                index_to_states_new = deepcopy(index_to_states) # AYA 
-                path.append(sel_state)
-                # update state_result (remove catched values)
-                for i in state_eval_all[sel_state[0]][sel_state[1]]:
-                    index_to_states_new[i] = set()
-                explore(index_to_states_new, path, history, dept+1)
-                path.pop()
+            index_to_states_new = deepcopy(index_to_states) # AYA 
+            path.append(sel_state)
+            # update state_result (remove catched values)
+            for i in state_eval_all[sel_state[0]][sel_state[1]]:
+                index_to_states_new[i] = set()
+            explore(index_to_states_new, path, history, dept+1)
+            path.pop()
     
 
     def fast_explore():
@@ -398,10 +402,15 @@ def algo1(y, x, Dky, Dkx):
             # Explore the most critical index
             residual_indx = filter(lambda i: index_to_count_states[i] != 0, range(tensor_o.size))
             ind = min(residual_indx, key=lambda i: index_to_count_states[i])
+            # print("ind", ind)
             # Explone the most usefull state
-            available_states = get_states_at_index(ind)           
+            available_states = list(get_states_at_index(ind))
+            # for s in available_states:
+            #    print(s, -sum((index_to_count_states[k] != 0 and test_if_index_match_state(k, s) for k in range(tensor_o.size))))
+            # print(available_states)
             sel_state = min(available_states, key = lambda s: -sum((index_to_count_states[k] != 0 and test_if_index_match_state(k, s) for k in range(tensor_o.size))))
             # print(f'{dept=} {ind=} {sel_state}')
+            # print("sel_state", sel_state)
             path.append(sel_state)
             # update state_result (remove catched values)
             for i in state_eval(sel_state):
@@ -433,8 +442,8 @@ def algo1(y, x, Dky, Dkx):
                     if index_to_count_states[i] < vmin:
                         ind = i
                         vmin = index_to_count_states[i]
-      
-            # Explone the most usefull state
+            # print(ind)
+            # Explore the most usefull state
             sel_state = (0, 0)
             vmin = np.inf
             ind_o = ind
@@ -443,19 +452,25 @@ def algo1(y, x, Dky, Dkx):
                 for o in range(max(0, ind_o - DMA + 1), min(ind_o + 1, tensor_o.size - DMA + 1)):
                     # available_states
                     test = 0
-                    for k in range(o, o + DMA + 1): # We can only hit here
+                    for k in range(o, o + DMA - 1 + 1): # We can only hit here 
+                        # +1 for range; -1 for loop o >= max(0, k - DMA + 1)
                         loc_ind_i = tensor_o.ravel()[k]
                         test -= index_to_count_states[k] != 0 and (i >= loc_ind_i - DMA + 1 and i < loc_ind_i + 1)
+                        # 
+                        # i >= max(0, loc_ind_i - DMA + 1) and
+                        # i < min(loc_ind_i + 1, tensor_i.size - DMA + 1) and 
+                        # o >= max(0, k - DMA + 1) and
+                        # o < min(k + 1, tensor_o.size - DMA + 1))
+
+                    # print((i, o), test)
                     if test < vmin:
                         vmin = test
-                        sel_state = (i, o) 
-            
-            # print(f'{dept=} {ind=} {sel_state}')
-            # path.append(sel_state)
-            history_stack[dept] = sel_state
-            # print(sel_state)
-            # update state_result (remove catched values)
+                        sel_state = (i, o)
 
+            # print('sel_state', sel_state)
+            history_stack[dept] = sel_state
+            
+            # update state_result (remove catched values)
             for io in range(sel_state[1], sel_state[1] + DMA):
                 vo = tensor_o.ravel()[io]
                 if vo >= sel_state[0] and vo < sel_state[0] + DMA:
@@ -499,12 +514,12 @@ def algo1(y, x, Dky, Dkx):
             combination_dma_io = list(product(range(tensor_i.size - DMA + 1), range(tensor_o.size - DMA + 1)))
             print(f'DONE #comb = {len(combination_dma_io)}')   
             print("Compute index_to_states ...", end='', flush=True)
-            index_to_states = [set() for _ in range(tensor_o.size)]
+            index_to_states = [[] for _ in range(tensor_o.size)]
             pbar = enlighten.Counter(total=len(combination_dma_io), unit='ticks')
             for state in combination_dma_io:
                 pbar.update()
                 for v in state_eval(state):
-                    index_to_states[v].add(state)
+                    index_to_states[v].append(state)
             print('DONE')
             print("Compute state_eval_all ...", end='', flush=True)
             state_eval_all = [[set(state_eval((i, j))) for j in range(tensor_o.size - DMA + 1)] for i in range(tensor_i.size - DMA + 1)]
@@ -607,8 +622,8 @@ def evaluate_prog(prog, input_size, output_size):
 
 
 # Input
-x = 8
-y = 8
+x = 4
+y = 4
 
 # Filter shape
 Dkx = 2

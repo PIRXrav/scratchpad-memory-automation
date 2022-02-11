@@ -301,18 +301,7 @@ def algo1(y, x, Dky, Dkx):
     # for comb in combination_dma_io:
     #    print(f'{comb} -> {list(state_eval(comb))}')
 
-    # Compute all combinations of @input, @output (we will use remove on it -> set)
-    print("Compute combination_dma_io ...", end='', flush=True)
-    combination_dma_io = list(product(range(tensor_i.size - DMA + 1), range(tensor_o.size - DMA + 1)))
-    print(f'DONE #comb = {len(combination_dma_io)}')   
-    print("Compute index_to_states ...", end='', flush=True)
-    index_to_states = [set() for _ in range(tensor_o.size)]
-    pbar = enlighten.Counter(total=len(combination_dma_io), unit='ticks')
-    for state in combination_dma_io:
-        pbar.update()
-        for v in state_eval(state):
-            index_to_states[v].add(state)
-    print('DONE')
+   
 
     def explore(index_to_states, path, history, dept):       
         
@@ -361,29 +350,67 @@ def algo1(y, x, Dky, Dkx):
                 explore(index_to_states_new, path, history, dept+1)
                 path.pop()
     
+    def fast_explore():
 
-    def fast_explore(index_to_states):
-        path = []
-        dept = 0
-        indx = list(range(tensor_o.size))
+        def get_states_at_index(ind_o):
+            ind_i = tensor_o.ravel()[ind_o]
+            polyhedron = product(range(max(0, ind_i - DMA + 1), min(ind_i + 1, tensor_i.size - DMA + 1)),
+                                 range(max(0, ind_o - DMA + 1), min(ind_o + 1, tensor_o.size - DMA + 1)))
+            return polyhedron
+
+        def counte_states_as_index(ind_o):
+            ind_i = tensor_o.ravel()[ind_o]
+            return ((min(ind_i + 1, tensor_i.size - DMA + 1) -  max(0, ind_i - DMA + 1)) *
+                    (min(ind_o + 1, tensor_o.size - DMA + 1) - max(0, ind_o - DMA + 1)))
+ 
+        def test_if_index_match_state(ind_o, state):
+            # EQ as state in get_states_at_index(ind_o)
+            ind_i = tensor_o.ravel()[ind_o]
+            return (state[0] >= max(0, ind_i - DMA + 1) and
+                    state[0] < min(ind_i + 1, tensor_i.size - DMA + 1) and 
+                    state[1] >= max(0, ind_o - DMA + 1) and
+                    state[1] < min(ind_o + 1, tensor_o.size - DMA + 1))
+    
+        index_to_count_states = np.array([counte_states_as_index(ind_o) for ind_o in range(tensor_o.size)])
+        print(index_to_count_states)
         
-        while not np.all(np.array(list(map(len, index_to_states))) == 0):
+        path = []
+        dept = 0  
+
+        pbar = enlighten.Counter(total=tensor_o.size, unit='ticks')
+        while not np.all(index_to_count_states == 0):
             dept += 1
-            print(dept)
-            ind = min(filter(lambda i: len(index_to_states[i]) != 0, indx), key=lambda i: len(index_to_states[i]))
+            # Explore the most critical index
+            residual_indx = filter(lambda i: index_to_count_states[i] != 0, range(tensor_o.size))
+            ind = min(residual_indx, key=lambda i: index_to_count_states[i])
             # Explone the most usefull state
-            sel_state = min(index_to_states[ind], key = lambda s: -np.sum([s in index_to_states[k] for k in range(tensor_o.size)]))
-            print(sel_state)
+            available_states = get_states_at_index(ind)           
+            sel_state = min(available_states, key = lambda s: -sum((index_to_count_states[k] != 0 and test_if_index_match_state(k, s) for k in range(tensor_o.size))))
+            # print(f'{dept=} {ind=} {sel_state}')
             path.append(sel_state)
             # update state_result (remove catched values)
             for i in state_eval(sel_state):
-                index_to_states[i] = set()
+                pbar.update()
+                index_to_count_states[i] = 0
+            
 
         # print(f'HIT! : {dept} {path}')
         return [dept, path]
 
     if 0:
         with enlighten.Manager() as manager:
+             # Compute all combinations of @input, @output (we will use remove on it -> set)
+            print("Compute combination_dma_io ...", end='', flush=True)
+            combination_dma_io = list(product(range(tensor_i.size - DMA + 1), range(tensor_o.size - DMA + 1)))
+            print(f'DONE #comb = {len(combination_dma_io)}')   
+            print("Compute index_to_states ...", end='', flush=True)
+            index_to_states = [set() for _ in range(tensor_o.size)]
+            pbar = enlighten.Counter(total=len(combination_dma_io), unit='ticks')
+            for state in combination_dma_io:
+                pbar.update()
+                for v in state_eval(state):
+                    index_to_states[v].add(state)
+            print('DONE')
             print("Compute state_eval_all ...", end='', flush=True)
             state_eval_all = [[set(state_eval((i, j))) for j in range(tensor_o.size - DMA + 1)] for i in range(tensor_i.size - DMA + 1)]
             print('DONE')
@@ -391,38 +418,26 @@ def algo1(y, x, Dky, Dkx):
             tk = progressbar_init(manager, [f"l{k}" for k in range(10)])
             explore(index_to_states, [], best, 0)
     else:
-        best = fast_explore(index_to_states)
+        if 1:
+            profile = lambda x: x()
+        best = profile(fast_explore)
+        # best = fast_explore()
+
     return best
 
-  
-    
-    return best
-
-
-    # print(state_result)
-    # valcount = np.zeros((tensor_o.size))
-    # comefrom = [None for _ in range(tensor_o.size)]
-    # for state in combination_dma_io:
-    #     res = state_result[state[0]][state[1]]
-    #     # print(f'{state} --> {res}')
-    #     for v in res:
-    #         comefrom[v] = state
-    #     valcount[list(state_result[state[0]][state[1]])]+=1
-    # print(valcount)
-    # indx = np.where(valcount == 1)[0] # Find the essential states
-    # print(indx)
-    # sel_ind = indx[0]
-    # print(f'{sel_ind=}')
-    # sel_state = comefrom[sel_ind]
-    # sel_res = copy(state_result[sel_state[0]][sel_state[1]])
-    # # Find sel_ind in
-    # # update state_result OUUTCH !!
-    # for state in combination_dma_io:
-    #     res = state_result[state[0]][state[1]]
-    #     for v in sel_res:
-    #         res -= {v}
-    # print(state_result)
-
+def profile(func):
+    import cProfile, pstats, io
+    from pstats import SortKey
+    pr = cProfile.Profile()
+    pr.enable()
+    ret = func()
+    pr.disable()
+    s = io.StringIO()
+    sortby = SortKey.CUMULATIVE
+    ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+    ps.print_stats()
+    print(s.getvalue())
+    return ret
 
 def algo2(y, x, Dky, Dkx):
     """ ALGO 2 """
@@ -489,8 +504,8 @@ def evaluate_prog(prog, input_size, output_size):
 
 
 # Input
-x = 8
-y = 8
+x = 16
+y = 16
 
 # Filter shape
 Dkx = 2

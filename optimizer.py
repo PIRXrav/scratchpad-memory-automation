@@ -24,7 +24,7 @@ def profile(func):
     return ret
 
 # use 5 word DMA buffer
-DMA = 128
+DMA = 16
 
 def toeplitz(tensor_i, Dky, Dkx):
     # Toeplitz matrix
@@ -320,10 +320,8 @@ def algo1(y, x, Dky, Dkx):
    
 
     def explore(index_to_states, path, history, dept):       
-        
         if dept >= history[0]:
             return
-            
 
         valcount = np.array(list(map(len, index_to_states)))
 
@@ -366,8 +364,56 @@ def algo1(y, x, Dky, Dkx):
                 explore(index_to_states_new, path, history, dept+1)
                 path.pop()
     
+
+    def fast_explore():
+
+        def get_states_at_index(ind_o):
+            ind_i = tensor_o.ravel()[ind_o]
+            polyhedron = product(range(max(0, ind_i - DMA + 1), min(ind_i + 1, tensor_i.size - DMA + 1)),
+                                 range(max(0, ind_o - DMA + 1), min(ind_o + 1, tensor_o.size - DMA + 1)))
+            return polyhedron
+
+        def counte_states_as_index(ind_o):
+            ind_i = tensor_o.ravel()[ind_o]
+            return ((min(ind_i + 1, tensor_i.size - DMA + 1) -  max(0, ind_i - DMA + 1)) *
+                    (min(ind_o + 1, tensor_o.size - DMA + 1) - max(0, ind_o - DMA + 1)))
+ 
+        def test_if_index_match_state(ind_o, state):
+            # EQ as state in get_states_at_index(ind_o)
+            ind_i = tensor_o.ravel()[ind_o]
+            return (state[0] >= max(0, ind_i - DMA + 1) and
+                    state[0] < min(ind_i + 1, tensor_i.size - DMA + 1) and 
+                    state[1] >= max(0, ind_o - DMA + 1) and
+                    state[1] < min(ind_o + 1, tensor_o.size - DMA + 1))
+    
+        index_to_count_states = np.array([counte_states_as_index(ind_o) for ind_o in range(tensor_o.size)])
+        # print(index_to_count_states)
+        
+        path = []
+        dept = 0  
+
+        pbar = enlighten.Counter(total=tensor_o.size, unit='ticks')
+        while not np.all(index_to_count_states == 0):
+            dept += 1
+            # Explore the most critical index
+            residual_indx = filter(lambda i: index_to_count_states[i] != 0, range(tensor_o.size))
+            ind = min(residual_indx, key=lambda i: index_to_count_states[i])
+            # Explone the most usefull state
+            available_states = get_states_at_index(ind)           
+            sel_state = min(available_states, key = lambda s: -sum((index_to_count_states[k] != 0 and test_if_index_match_state(k, s) for k in range(tensor_o.size))))
+            # print(f'{dept=} {ind=} {sel_state}')
+            path.append(sel_state)
+            # update state_result (remove catched values)
+            for i in state_eval(sel_state):
+                pbar.update()
+                index_to_count_states[i] = 0
+            
+
+        # print(f'HIT! : {dept} {path}')
+        return [dept, path]
+
     @njit(nogil=True)
-    def fast_explore(tensor_i, tensor_o, history_stack, progress_proxy):
+    def fast_explore_numba(tensor_i, tensor_o, history_stack, progress_proxy):
         
         def counte_states_as_index(tensor_i, tensor_o, ind_o):
             ind_i = tensor_o.ravel()[ind_o]
@@ -444,7 +490,9 @@ def algo1(y, x, Dky, Dkx):
         permutation, cost = solve_tsp_local_search(distances)
         return [cost, np.array(states)[permutation]]
 
-    if 0:
+    if 1: # Generic version
+        print('================== generic version ======================')
+        start_time = time.time()
         with enlighten.Manager() as manager:
              # Compute all combinations of @input, @output (we will use remove on it -> set)
             print("Compute combination_dma_io ...", end='', flush=True)
@@ -464,21 +512,33 @@ def algo1(y, x, Dky, Dkx):
             best = [99999, None]
             tk = progressbar_init(manager, [f"l{k}" for k in range(10)])
             explore(index_to_states, [], best, 0)
-    else:
-        # if 0:
-        #    profile = lambda x: x()
+        print(f"Got states: {list(map(tuple, best[1]))}")
+        print(f"Unoptimized cost: {3*best[0]}")
+        print("--- basis explore : %s seconds ---" % (time.time() - start_time))
+        print('==========================================================')
+    if 1: # fast_explore_numba
+        print('================== fast_explore_numba ====================')
+        start_time = time.time()
         history_stack = np.zeros((tensor_o.size, 2), dtype=np.int32)
         with ProgressBar(total=tensor_o.size) as progress:
-            dept = fast_explore(tensor_i, tensor_o, history_stack, progress)
+            dept = fast_explore_numba(tensor_i, tensor_o, history_stack, progress)
         best = [dept, history_stack[:dept]]
+        print(f"Got states: {list(map(tuple, best[1]))}")
+        print(f"Unoptimized cost: {3*best[0]}")
+        print("--- fast_explore_numba : %s seconds ---" % (time.time() - start_time))
+        print('==========================================================')
+    if 1: # fast_explore
+        print('================== fast_explore ==========================')
+        start_time = time.time()
+        best = fast_explore()
+        print(f"Got states: {list(map(tuple, best[1]))}")
+        print(f"Unoptimized cost: {3*best[0]}")
+        print("--- fast_explore : %s seconds ---" % (time.time() - start_time))
+        print('==========================================================')
 
-    states = best[1]
-    print(f"Got states: {list(map(tuple, best[1]))}")
-    print(f"Unoptimized cost: {3*best[0]}")
-    
     best = tsp_solve(best[1])
-    print(f"Got states: {list(map(tuple, best[1]))}")
-    print(f"cost: {best[0]}")
+    # print(f"Got states: {list(map(tuple, best[1]))}")
+    # print(f"cost: {best[0]}")
 
     return best
 
@@ -547,8 +607,8 @@ def evaluate_prog(prog, input_size, output_size):
 
 
 # Input
-x = 16
-y = 16
+x = 8
+y = 8
 
 # Filter shape
 Dkx = 2

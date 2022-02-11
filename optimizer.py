@@ -345,7 +345,7 @@ def algo1(y, x, Dky, Dkx):
             # Heuristic
             indx = list(indx)
             indx.sort(key=lambda i: len(index_to_states[i]))
-            indx = indx[:1] # Explone the most criticals index
+            indx = indx[:2] # Explone the most criticals index
             # indx = [min(indx, key=lambda i: len(index_to_states[i]))]
             # for ind in indx:
             for ind in indx: 
@@ -353,7 +353,7 @@ def algo1(y, x, Dky, Dkx):
                 states = list(index_to_states[ind])
                 # print(states)
                 states.sort(key = lambda s: -np.sum([s in index_to_states[k] for k in range(tensor_o.size)]))
-                states = states[:1] # Explone the most usefull states
+                states = states[:3] # Explone the most usefull states
                 #states = [min(states, key=lambda s: -np.sum([s in index_to_states[k] for k in range(tensor_o.size)]))]
                 for sel_state in states:
                     # print(f'{ind:5} {sel_state}')
@@ -623,7 +623,7 @@ def evaluate_prog(prog, input_size, output_size):
 
 # Input
 x = 4
-y = 4
+y = 3
 
 # Filter shape
 Dkx = 2

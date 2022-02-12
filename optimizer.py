@@ -24,7 +24,7 @@ def profile(func):
     return ret
 
 # use 5 word DMA buffer
-DMA = 5
+DMA =5
 
 def toeplitz(tensor_i, Dky, Dkx):
     # Toeplitz matrix
@@ -334,18 +334,14 @@ def algo1(y, x, Dky, Dkx):
             return
 
         # Find the essential states
-        indx = np.where(valcount == 1)[0]
-        if len(indx): # There is multiple values: only do the first
-            indx = [indx[0]]
-        else: # There is no values: fallback to counts != 0
-            indx = np.where(valcount != 0)[0]
-        
+        indx = np.where(valcount != 0)[0]
+
         def get_states(indx):
             global indd
             # Heuristic
             indx = list(indx)
-            indx.sort(key=lambda i: len(index_to_states[i]))
-            indx = indx[:2] # Explone the most criticals index
+            # indx.sort(key=lambda i: len(index_to_states[i]))
+            indx = indx[:1] # Explone the most criticals index
             # indx = [min(indx, key=lambda i: len(index_to_states[i]))]
             # for ind in indx:
             for ind in indx: 
@@ -353,8 +349,8 @@ def algo1(y, x, Dky, Dkx):
                 states = list(index_to_states[ind])
                 # print(states)
                 states.sort(key = lambda s: -np.sum([s in index_to_states[k] for k in range(tensor_o.size)]))
-                states = states[:3] # Explone the most usefull states
-                #states = [min(states, key=lambda s: -np.sum([s in index_to_states[k] for k in range(tensor_o.size)]))]
+                states = states[:1] # Explone the most usefull states
+                # states = [min(states, key=lambda s: -np.sum([s in index_to_states[k] for k in range(tensor_o.size)]))]
                 for sel_state in states:
                     # print(f'{ind:5} {sel_state}')
                     yield sel_state
@@ -395,13 +391,14 @@ def algo1(y, x, Dky, Dkx):
         
         path = []
         dept = 0  
-
+        
         pbar = enlighten.Counter(total=tensor_o.size, unit='ticks')
         while not np.all(index_to_count_states == 0):
             dept += 1
             # Explore the most critical index
             residual_indx = filter(lambda i: index_to_count_states[i] != 0, range(tensor_o.size))
-            ind = min(residual_indx, key=lambda i: index_to_count_states[i])
+            # ind = min(residual_indx, key=lambda i: index_to_count_states[i])
+            ind = next(iter(residual_indx))
             # print("ind", ind)
             # Explone the most usefull state
             available_states = list(get_states_at_index(ind))
@@ -437,11 +434,16 @@ def algo1(y, x, Dky, Dkx):
             # Explore the most critical index
             vmin = np.inf
             ind = 0
+            # No need to filter !
+            # for i in range(tensor_o.size):
+            #     if index_to_count_states[i] != 0:
+            #         if index_to_count_states[i] < vmin:
+            #             ind = i
+            #             vmin = index_to_count_states[i]
             for i in range(tensor_o.size):
                 if index_to_count_states[i] != 0:
-                    if index_to_count_states[i] < vmin:
-                        ind = i
-                        vmin = index_to_count_states[i]
+                    ind = i
+                    break
             # print(ind)
             # Explore the most usefull state
             sel_state = (0, 0)
@@ -598,25 +600,25 @@ def algo2(y, x, Dky, Dkx):
 
     
 def evaluate_prog(prog, input_size, output_size):
-    mvcount = len(list(filter(lambda x:x[0] == 'mv', prog)))
-    dmacount = len(prog) - mvcount
-    instrcount = len(prog)
-    
+
+    count_total = len(prog)
     count_ldi = len(list(filter(lambda x:x[0] == 'ldi', prog)))
     count_ldo = len(list(filter(lambda x:x[0] == 'ldo', prog)))
     count_sto = len(list(filter(lambda x:x[0] == 'sto', prog)))
-    
+    count_mv = len(list(filter(lambda x:x[0] == 'mv', prog)))
+
+    res = {'total inst': count_total,
+           'total ldi': count_ldi,
+           'total ldo': count_ldo,
+           'total mv': count_mv,
+           'total ldst': count_ldi + count_ldo + count_sto,
+           'DMA': DMA,
+           'quality ldi': count_mv / count_ldi / DMA,
+           'quality sto': count_mv / count_sto / DMA,
+           'quality global': count_mv / (count_ldi + count_ldo + count_sto) / DMA * 3}
     print(f'=========== EVALUATE PROG ===========')
-    print(f'  total instructions : {instrcount}')
-    print(f'           total ldi : {count_ldi}')
-    print(f'           total ldo : {count_ldo}')
-    print(f'           total sto : {count_sto}')
-    print(f'        number of mv : {mvcount}')
-    print(f' number of dma ld st : {dmacount}')
-    print(f'   mean mv per ld/st : {mvcount/dmacount}')
-    print(f'             quality : {(input_size+output_size)/(count_ldi+count_sto)/DMA}')
-    print(f'         ldi_quality : {input_size/(count_ldi*DMA)}')
-    print(f'         sto_quality : {output_size/(count_sto*DMA)}')
+    print('\n'.join((f'{k:>20}; {v}' for k, v in res.items())))
+    return res
     
 
 

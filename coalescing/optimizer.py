@@ -33,7 +33,7 @@ def toeplitz(tensor_i, Dky, Dkx):
     o_y = (x - Dkx // 2) * (y - Dky // 2)
     tensor_o = np.zeros((o_y, o_x), dtype=np.int32)
 
-    # Perform translation
+    # Perform translation # BUGS HERE
     for ffy in range(y - Dky // 2):
         for ffx in range(x - Dkx // 2):
             i_filter = ffy * (x - Dkx // 2) + ffx

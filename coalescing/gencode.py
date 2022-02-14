@@ -20,7 +20,7 @@ class CLinearGencodeProgVisitor(ProgVisitor):
         self.res.append(f'DMA_ST({self.oname}+{rel_addr}, {self.dmao}, {self.dma});')
 
     def visit_mv(self, rel_addr_dst, rel_addr_src):
-        self.res.append(f'*({self.oname}+{rel_addr_dst}) = *({self.iname}+{rel_addr_src});')
+        self.res.append(f'*({self.dmao}+{rel_addr_dst}) = *({self.dmai}+{rel_addr_src});')
 
     def export(self):
         return "\n".join(self.res)

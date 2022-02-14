@@ -8,6 +8,7 @@ import enlighten
 from itertools import product
 import time
 from numba import jit, njit
+from prog import Prog
 
 def profile(func):
     import cProfile, pstats, io
@@ -24,7 +25,7 @@ def profile(func):
     return ret
 
 # use 5 word DMA buffer
-DMA =5
+DMA = 16
 
 def toeplitz(tensor_i, Dky, Dkx):
     # Toeplitz matrix
@@ -86,39 +87,6 @@ def progressbar(iterator, dept, tk):
             tk[dept].update()
         yield v
 
-def export_algo(states, tensor_o):
-    state = [-1, -1]
-    prog = []
-
-    def transactions(tensor_o):
-        dmai = dma_load(tensor_i, state[0])
-        dmao = dma_load(tensor_o, state[1])
-        for idmai, vi in enumerate(dmai):
-            for idmao, vo in enumerate(dmao):
-                if vi == vo:
-                    dmao[idmao] = -1 # In reality, copy value:
-                    prog.append(('mv', idmai, idmao)) #  += f'dma_o[{idmao}] = dma_i[{idmai}]\n' 
-        return prog
-
-    for i, o in states:
-        if state[0] != i:
-            prog.append(('ldi', i))
-            # prog += f'DMA_LD(dma_i, {i})\n'
-            state[0] = i
-            transactions(tensor_o)
-
-        if state[1] != o:
-            if state[1] != -1: # Small optim
-                prog.append(('sto', state[1]))
-                # prog += f'DMA_ST(dma_o, {state[1]})\n'
-            prog.append(('ldo', o))
-            # prog += f'DMA_LD(dma_o, {o})\n'
-            state[1] = o
-            transactions(tensor_o)
-    
-    prog.append(('sto', o))
-    assert np.all(tensor_o == -1)
-    return prog
 
 def algo0(y, x, Dky, Dkx):
     
@@ -300,12 +268,18 @@ def algo0FullExploreNumba(y, x, Dky, Dkx):
 
 from numba_progress import ProgressBar
 
-def algo1(y, x, Dky, Dkx):
+def algo1(y, x, Dky, Dkx, v_heuristic=False, 
+                          v_fast_explore=False,
+                          v_fast_explore_numba=False):
     """ ALGO 1 """
+
+    if v_heuristic + v_fast_explore + v_fast_explore_numba != 1:
+        raise Exception('Invalid arguments')
+
     tensor_i = np.arange(x*y, dtype=np.int32).reshape(y, x) # tab[index] = index !!
     tensor_o = toeplitz(tensor_i, Dky, Dkx)
     
-    
+
     # print(list(combination_dma_io))
     def state_eval(comb):
         tensor_o_dma = dma_load(tensor_o, comb[1])
@@ -507,7 +481,7 @@ def algo1(y, x, Dky, Dkx):
         permutation, cost = solve_tsp_local_search(distances)
         return [cost, np.array(states)[permutation]]
 
-    if 1: # Generic version
+    if v_heuristic: # Generic version
         print('================== generic version ======================')
         start_time = time.time()
         with enlighten.Manager() as manager:
@@ -533,7 +507,15 @@ def algo1(y, x, Dky, Dkx):
         print(f"Unoptimized cost: {3*best[0]}")
         print("--- basis explore : %s seconds ---" % (time.time() - start_time))
         print('==========================================================')
-    if 1: # fast_explore_numba
+    if v_fast_explore: # fast_explore
+        print('================== fast_explore ==========================')
+        start_time = time.time()
+        best = fast_explore()
+        print(f"Got states: {list(map(tuple, best[1]))}")
+        print(f"Unoptimized cost: {3*best[0]}")
+        print("--- fast_explore : %s seconds ---" % (time.time() - start_time))
+        print('==========================================================')
+    if v_fast_explore_numba: # fast_explore_numba
         print('================== fast_explore_numba ====================')
         start_time = time.time()
         history_stack = np.zeros((tensor_o.size, 2), dtype=np.int32)
@@ -544,19 +526,10 @@ def algo1(y, x, Dky, Dkx):
         print(f"Unoptimized cost: {3*best[0]}")
         print("--- fast_explore_numba : %s seconds ---" % (time.time() - start_time))
         print('==========================================================')
-    if 1: # fast_explore
-        print('================== fast_explore ==========================')
-        start_time = time.time()
-        best = fast_explore()
-        print(f"Got states: {list(map(tuple, best[1]))}")
-        print(f"Unoptimized cost: {3*best[0]}")
-        print("--- fast_explore : %s seconds ---" % (time.time() - start_time))
-        print('==========================================================')
-
+    
     best = tsp_solve(best[1])
     # print(f"Got states: {list(map(tuple, best[1]))}")
     # print(f"cost: {best[0]}")
-
     return best
 
 def algo2(y, x, Dky, Dkx):
@@ -598,34 +571,46 @@ def algo2(y, x, Dky, Dkx):
     for o, s in enumerate(state_eval_o):
         print(f'o:{o} -> {s}')
 
-    
-def evaluate_prog(prog, input_size, output_size):
 
-    count_total = len(prog)
-    count_ldi = len(list(filter(lambda x:x[0] == 'ldi', prog)))
-    count_ldo = len(list(filter(lambda x:x[0] == 'ldo', prog)))
-    count_sto = len(list(filter(lambda x:x[0] == 'sto', prog)))
-    count_mv = len(list(filter(lambda x:x[0] == 'mv', prog)))
+def export(states, tensor_o):
+    state = [-1, -1]
+    prog = Prog()
 
-    res = {'total inst': count_total,
-           'total ldi': count_ldi,
-           'total ldo': count_ldo,
-           'total mv': count_mv,
-           'total ldst': count_ldi + count_ldo + count_sto,
-           'DMA': DMA,
-           'quality ldi': count_mv / count_ldi / DMA,
-           'quality sto': count_mv / count_sto / DMA,
-           'quality global': count_mv / (count_ldi + count_ldo + count_sto) / DMA * 3}
-    print(f'=========== EVALUATE PROG ===========')
-    print('\n'.join((f'{k:>20}; {v}' for k, v in res.items())))
-    return res
+    def transactions(tensor_o):
+        dmai = dma_load(tensor_i, state[0])
+        dmao = dma_load(tensor_o, state[1])
+        for idmai, vi in enumerate(dmai):
+            for idmao, vo in enumerate(dmao):
+                if vi == vo:
+                    dmao[idmao] = -1 # In reality, copy value:
+                    prog.append_mv(idmao, idmai)
+        return prog
+
+    for i, o in states:
+        if state[0] != i:
+            prog.append_ldi(i)
+            # prog += f'DMA_LD(dma_i, {i})\n'
+            state[0] = i
+            transactions(tensor_o)
+
+        if state[1] != o:
+            if state[1] != -1: # Small optim
+                prog.append_sto(state[1])
+                # prog += f'DMA_ST(dma_o, {state[1]})\n'
+            prog.append_ldo(o)
+            # prog += f'DMA_LD(dma_o, {o})\n'
+            state[1] = o
+            transactions(tensor_o)
     
+    prog.append_sto(o)
+    assert np.all(tensor_o == -1)
+    return prog
 
 
 
 # Input
-x = 4
-y = 3
+x = 8
+y = 8
 
 # Filter shape
 Dkx = 2
@@ -642,8 +627,8 @@ if 0:
     start_time = time.time()
     best = algo0(y, x, Dky, Dkx)
     print(best)
-    prog = export_algo(best[1], tensor_o)
-    evaluate_prog(prog, 9, 16)
+    prog = export(best[1], tensor_o)
+    prog.evaluate(DMA)
     print("--- algo0 : %s seconds ---" % (time.time() - start_time))
 
 if 0:
@@ -651,19 +636,19 @@ if 0:
     best = algo0FullExploreNumba(y, x, Dky, Dkx)
     best[1] = list(map(tuple, best[1]))
     print(best)
-    prog = export_algo(best[1], tensor_o)
-    evaluate_prog(prog, 9, 16)
+    prog = export(best[1], tensor_o)
+    prog.evaluate(DMA)
     print("--- algo0FullExploreNumba : %s seconds ---" % (time.time() - start_time))
 
 
 if 1:
     start_time = time.time()
-    best = algo1(y, x, Dky, Dkx)
-    prog = export_algo(best[1], tensor_o)
-    evaluate_prog(prog, 9, 16)
+    best = algo1(y, x, Dky, Dkx, v_fast_explore_numba=True)
+    prog = export(best[1], tensor_o)
+    prog.evaluate(DMA)
     print("--- algo1 : %s seconds ---" % (time.time() - start_time))
 
-# evaluate_prog(prog, 9, 16)
 
-# algo1(y, x, Dky, Dkx)
+
+
 # algo2(y, x, Dky, Dkx)

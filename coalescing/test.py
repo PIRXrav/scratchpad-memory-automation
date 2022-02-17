@@ -1,34 +1,42 @@
-from optimizer import algo1, toeplitz, export, DMA
-from gencode import CLinearGencodeProgVisitor
+from optimizer import algo1, toeplitz, export
+from gencode import CLinearGencodeProgVisitor, CMvTabGencodeProgVisitor
 import numpy as np
 
+exit
+
+DMA = 128 # 1024o
 # Input
-x = 8
-y = 8
+x = 16
+y = 16
 
 # Filter shape
 Dkx = 2
 Dky = 2
 
 tensor_i = np.arange(x*y, dtype=np.int32).reshape(y, x) # tab[index] = index !!
-tensor_o = toeplitz(tensor_i, Dky, Dkx)
+tensor_o = toeplitz(tensor_i,  y, x, Dky, Dkx)
 
-best = algo1(y, x, Dky, Dkx, v_fast_explore_numba=True)
-prog = export(best[1], tensor_o)
+best = algo1(y, x, Dky, Dkx, DMA, v_fast_explore_numba=True)
+prog = export(best[1], tensor_i, tensor_o, DMA)
 prog.evaluate(DMA)
 
 # TODO remove cast & DMA * 4
-cprog = CLinearGencodeProgVisitor(prog, '(int32_t*)tab0', '(int32_t*)tab1', '(int32_t*)__SMA__dma0', '(int32_t*)__SMA__dma1', DMA*4)
-print(cprog)
+cprog = CLinearGencodeProgVisitor(prog, 'tab0', 'tab1', 'local_dmai', 'local_dmao', DMA * 8)
+# print(cprog)
+
+
+citab, cotab, coreloop = CMvTabGencodeProgVisitor(prog, 'tab0', 'tab1', 'local_dmai', 'local_dmao', DMA * 8).export()
+print(coreloop)
+
+import subprocess
 
 
 
-
-with open('res.c', 'w') as f:
-    f.write('/* Generated f */\n')
+with open('res.h', 'w') as f:
+    f.write('/* Generated header */\n')
     f.write('/* Toeplitz matrix transformation test */\n')
+    f.write('#pragma once\n')
     f.write('#include "dma.h"\n')
-    f.write('#include <stdio.h>\n')
     f.write('\n')
     f.write(f'#define X {x}\n')
     f.write(f'#define Y {y}\n')   
@@ -38,38 +46,32 @@ with open('res.c', 'w') as f:
     f.write(f'#define DKY {Dky}\n')
     f.write(f'#define DKX {Dkx}\n')
     f.write('\n')  
-    f.write('int32_t tab0[Y][X];\n')  
-    f.write('int32_t tab1ref[TY][TX]; /* Toeplitz std */\n')
-    f.write('int32_t tab1[TY][TX]; /* Toeplitz fast */\n') 
-    f.write('\n')  
+    f.write('void toeplitz_naif(__SMA__ram_ptr void *tab0raw, __SMA__ram_ptr void *tab1raw){\n')
+    f.write('    __SMA__ram_ptr const int64_t (*tab0)/*Y*/[X] = tab0raw;\n')
+    f.write('    __SMA__ram_ptr int64_t (*tab1)/*TY*/[TX] = tab1raw;\n')
     f.write('\n')
-    f.write('int main(void){\n')
-    # Init tab0
-    f.write('    for(int i = 0; i < Y*X; i++){((int32_t*)tab0)[i] = i;}')
-    # Perform ref translation
     f.write('    int i_f = 0;\n')
     f.write('    for(int ffy = 0; ffy < (Y - DKY / 2); ffy++){\n')
     f.write('        for(int ffx = 0; ffx < (X - DKX / 2); ffx++){\n')
     f.write('            for(int dkyy = 0; dkyy < DKY; dkyy++){\n')
     f.write('                for(int dkxx = 0; dkxx < DKX; dkxx++){\n')
-    f.write('                    tab1ref[i_f][dkyy * DKX + dkxx] = tab0[ffy + dkyy][ffx + dkxx];\n')
+    f.write('                    tab1[i_f][dkyy * DKX + dkxx] = tab0[ffy + dkyy][ffx + dkxx];\n')
     f.write('                }\n')
     f.write('            }\n')
     f.write('            i_f++;\n')
     f.write('        }\n')
     f.write('    }\n')
-    f.write('\n')
-    f.write(cprog.export())
-    f.write('\n')
-    f.write('for(int i = 0; i < Y*X; i++){printf("tab1ref=%d\\ttab1=%d\\n", ((int32_t*)tab1ref)[i], ((int32_t*)tab1)[i]);}')
-    f.write('    return 0;\n')
     f.write('}\n')
+    f.write('\n')
+    f.write(citab)
+    f.write(cotab)
+    f.write('void toeplitz_optim_formv(__SMA__ram_ptr void *tab0raw, __SMA__ram_ptr void *tab1raw, int64_t *local_dmao, int64_t *local_dmai){\n')
+    f.write('    __SMA__ram_ptr const int64_t (*tab0)/*Y*/[X] = tab0raw;\n')
+    f.write('    __SMA__ram_ptr int64_t (*tab1)/*TY*/[TX] = tab1raw;\n')
+    f.write('\n')
+    f.write(coreloop)
+    f.write('}\n')
+    f.write('\n')
 
-
-
-
-            
-          
-
-    
+subprocess.run(["clang-format", '-i', 'res.h'])
     

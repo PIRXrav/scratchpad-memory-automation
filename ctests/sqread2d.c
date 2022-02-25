@@ -5,6 +5,10 @@
 
 __attribute__ ((aligned (16))) char tab0[M][N] = {0};
 
+int add(int a, int b){
+    a = a + b + 1;
+    return a + b;
+}
 int main(void){
     int res = 0;
 
@@ -44,7 +48,7 @@ int main(void){
         }
         res -= 50;
     }
-
+    res += add(res, res);
     printf("sum = %d\n", res);
 
     return 0;

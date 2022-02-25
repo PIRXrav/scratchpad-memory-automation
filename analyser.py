@@ -245,9 +245,7 @@ class MyArrayRef(MyNode):
 class AstToolkit:
     def __init__(self, filename):
         # Compute pycparser ast
-        self.ast = parse_file(filename, use_cpp=True,
-            cpp_path='gcc',
-            cpp_args=['-E', '-D__USE_GNU='])
+        self.ast = parse_file(filename, use_cpp=True)
         # Compute our ast
         mv = MyVisitor()
         mv.visit(self.ast)

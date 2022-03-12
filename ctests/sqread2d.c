@@ -1,14 +1,25 @@
-#include <stdio.h>
+#define M 16
+#define N 16
 
-#define M 4
-#define N 64
 
-__attribute__ ((aligned (16))) char tab0[M][N] = {0};
+char tab0[M][N] = {0};
 
-int add(int a, int b){
-    a = a + b + 1;
-    return a + b;
+int output[N];
+int input[N];
+int weights[N];
+
+
+typedef int T32;
+
+void GENV(void){
+    for (int n = 0; n < N; n++) {
+        // output[n] = 0; TODO
+        for (int m = 0; m < M; m++) {
+            output[n] += input[m] * weights[n][m];
+        }
+    }
 }
+
 int main(void){
     int res = 0;
 

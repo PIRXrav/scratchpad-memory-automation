@@ -32,6 +32,7 @@ from math import ceil, floor
 
 from pycparser import plyparser
 
+
 class Gencode:
     @classmethod
     def cgen_dma_ld(self, adr, buff, size):
@@ -40,6 +41,7 @@ class Gencode:
     @classmethod
     def cgen_dma_st(self, adr, buff, size):
         return f"DMA_ST({adr}, {buff}, {size})"
+
 
 import sys
 
@@ -63,6 +65,7 @@ def stmt_c_to_ast(code):
         raise
     return res.block_items[0]
 
+
 def expr_c_to_ast(code):
     res = compound_c_to_ast(f"{code};")
     if len(res.block_items) != 1:
@@ -71,6 +74,7 @@ def expr_c_to_ast(code):
         print(res)
         raise
     return res.block_items[0]
+
 
 class DmaBufferHandler:
     def __init__(self):
@@ -98,16 +102,17 @@ def c_ast_For_extract_l(node):
     """Return the for Bounds"""
     # /!\ Very restrictive
     try:
-        var_loop_name = node.init.decls[0].name    
+        var_loop_name = node.init.decls[0].name
         assert node.init.decls[0].init.value == "0"
         assert node.cond.op == "<"
         assert node.cond.left.name == var_loop_name
         l = node.cond.right.value
         return (var_loop_name, int("0"), int(l))
     except:
-        print('Invalid for:')
+        print("Invalid for:")
         print(ast_to_c_highlight(node))
         raise
+
 
 def c_ast_get_for_fathers(ast, node):
     class ForFathersVisitor(c_ast.NodeVisitor):
@@ -128,10 +133,11 @@ def c_ast_get_for_fathers(ast, node):
             else:
                 for n in node:
                     self.visit(n)
-        
+
     nv = ForFathersVisitor(node)
     nv.visit(ast)
     return nv.forfathers
+
 
 def c_ast_get_all_top_ref(node):
     class AllRefVisitor(c_ast.NodeVisitor):
@@ -140,10 +146,11 @@ def c_ast_get_all_top_ref(node):
 
         def visit_ArrayRef(self, node):
             self.refs.append(node)
-        
+
     nv = AllRefVisitor()
     nv.visit(node)
     return nv.refs
+
 
 def c_ast_get_upper_node(ast, node):
     class UpperNodeVisitor(c_ast.NodeVisitor):
@@ -162,16 +169,18 @@ def c_ast_get_upper_node(ast, node):
                 self.uppernode = self.compoundnode
             for n in node:
                 self.visit(n)
-    
+
     unv = UpperNodeVisitor(node)
     unv.visit(ast)
     uppernode = unv.uppernode
     return uppernode
 
+
 def c_ast_ref_get_l(ref):
     """
     Analyse the reference
     """
+
     class RefVisitor(c_ast.NodeVisitor):
         """
         ArrayRef(name=ArrayRef(name=ID(name='tab0'
@@ -203,6 +212,7 @@ def c_ast_ref_get_l(ref):
     rv.visit(ref)
     return rv.name, rv.res
 
+
 def c_ast_ref_analyse(ast, ref):
     # Compute fathers list for nodes
     for_nodes = c_ast_get_for_fathers(ast, ref)
@@ -213,8 +223,18 @@ def c_ast_ref_analyse(ast, ref):
     loops_access_names = [l[0] for l in l_tree]
 
     ref_name, ref_access_names = c_ast_ref_get_l(ref)
-    ref_is_read, ref_is_write  = c_ast_ref_is_rw(ast, ref)
-    return for_nodes, ref_name, ref_access_names, loops_access_names, loops_access_l, loops_access_l_cum, ref_is_read, ref_is_write
+    ref_is_read, ref_is_write = c_ast_ref_is_rw(ast, ref)
+    return (
+        for_nodes,
+        ref_name,
+        ref_access_names,
+        loops_access_names,
+        loops_access_l,
+        loops_access_l_cum,
+        ref_is_read,
+        ref_is_write,
+    )
+
 
 def c_ast_get_all_topfor(ast):
     class AllTopForVisitor(c_ast.NodeVisitor):
@@ -223,7 +243,7 @@ def c_ast_get_all_topfor(ast):
 
         def visit_For(self, node):
             self.fors.append(node)
-            
+
     nv = AllTopForVisitor()
     nv.visit(ast)
     return nv.fors
@@ -233,6 +253,7 @@ def c_ast_ref_is_rw(ast, ref):
     """
     Test is_read, is_write to ArrayRef Node
     """
+
     class RefRWVisitor(c_ast.NodeVisitor):
         def __init__(self, node):
             # Default is READ only
@@ -244,14 +265,14 @@ def c_ast_ref_is_rw(ast, ref):
         def visit_Assignment(self, node):
             # Check L value
             self.is_write = True
-            self.is_read = not node.op == '=' # else # <= , >=, +=, ...
+            self.is_read = not node.op == "="  # else # <= , >=, +=, ...
             self.visit(node.lvalue)
-            
+
             # Check R value
             self.is_write = False
             self.is_read = True
             self.visit(node.rvalue)
-            
+
             # Default is READ only
             self.is_write = False
             self.is_read = True
@@ -274,11 +295,12 @@ def c_ast_ref_is_rw(ast, ref):
     #         Exception("Error occured during decorate_all_ref_rw")
     # Impossible do decorate tree: __slots__ class :/
 
+
 class AstToolkit:
     def __init__(self, filename):
         # Compute pycparser ast
         self.ast = parse_file(filename, use_cpp=True)
-   
+
     def do_memory_mapping(self):
         # print(self.mast)
         ast = self.ast
@@ -289,13 +311,12 @@ class AstToolkit:
             nb_refs = len(refs)
             print(f"TOP REFS ({nb_refs}):")
             for i, ref in enumerate((refs)):
-                print(f'{ast_to_c(ref):20} RW={c_ast_ref_is_rw(ast, ref)}')
+                print(f"{ast_to_c(ref):20} RW={c_ast_ref_is_rw(ast, ref)}")
                 self.dma_mapping_algo3(ref, i)
 
     def exportc(self):
         generator = c_generator.CGenerator()
         return generator.visit(self.ast)
-
 
     def dma_mapping_algo3(self, ref, iref):
         """ """
@@ -309,15 +330,16 @@ class AstToolkit:
             loops_access_l,
             loops_access_l_cum,
             ref_is_read,
-            ref_is_write
+            ref_is_write,
         ) = c_ast_ref_analyse(ast, ref)
 
-    
-        loops_ref_access_l = [v if n in ref_access_names else 1 
-                             for n, v in zip(loops_access_names, loops_access_l)]
+        loops_ref_access_l = [
+            v if n in ref_access_names else 1
+            for n, v in zip(loops_access_names, loops_access_l)
+        ]
         loops_ref_access_l_cum = list(np.cumprod(loops_ref_access_l))
 
-        print("for_nodes=", list(map(type, for_nodes)))    
+        print("for_nodes=", list(map(type, for_nodes)))
         print(f"{loops_access_names=}")
         print(f"{loops_access_l=}")
         print(f"{loops_access_l_cum=}")
@@ -329,7 +351,7 @@ class AstToolkit:
 
         print(f"{ref_is_read=}")
         print(f"{ref_is_write=}")
-        
+
         # Not a cube
         if ref_access_names != loops_access_names:
             # is lower cube ?
@@ -342,7 +364,7 @@ class AstToolkit:
                     return contain_ordered(listin[1:], data[1:])
                 else:
                     return contain_ordered(listin, data[1:])
-            
+
             if not contain_ordered(ref_access_names, loops_access_names):
                 raise Exception(
                     f"Invalid memory mapping: {ref_access_names} != {loops_access_names} (TODO)"
@@ -354,7 +376,7 @@ class AstToolkit:
 
         # Find where insert DMA LD/ST
         IL = 0
-        if DMA_SIZE >= loops_ref_access_l_cum[-1]: # We only need to do 1 transfert
+        if DMA_SIZE >= loops_ref_access_l_cum[-1]:  # We only need to do 1 transfert
             IL = -1
         else:
             while DMA_SIZE > loops_ref_access_l_cum[IL]:
@@ -362,30 +384,34 @@ class AstToolkit:
 
         print(f"{IL=}")
 
-        buffer_name = f'__SMA__dma{iref}'
-        adr_name = f'__SMA__adr{iref}'
-        size_name = f'__SMA__size{iref}'
+        buffer_name = f"__SMA__dma{iref}"
+        adr_name = f"__SMA__adr{iref}"
+        size_name = f"__SMA__size{iref}"
+        iter_name = f"__SMA__i{iref}"
         cgen_dma_args = (adr_name, buffer_name, size_name)
 
         if IL == -1:
             # Compute memory mapping
             inds = (0 for i, name in enumerate(ref_access_names))
-            tab_rw = ref_name + "".join(reversed(list((f"[{index}]" for index in inds))))
+            tab_rw = ref_name + "".join(
+                reversed(list((f"[{index}]" for index in inds)))
+            )
             print(f"substitute {(tab_rw)} # mapped @ {buffer_name}s")
             # Insert transactions
             top_for = for_nodes[-1]
             content = c_ast_get_upper_node(ast, top_for).block_items
-            content.insert(0, stmt_c_to_ast(f'int {size_name} = {loops_ref_access_l_cum[-1]};'))
-            content.insert(1, stmt_c_to_ast(f'void * {adr_name} = {"&" + tab_rw};'))           
-            if ref_is_read: # insert LD
+            content.insert(
+                0, stmt_c_to_ast(f"int {size_name} = {loops_ref_access_l_cum[-1]};")
+            )
+            content.insert(1, stmt_c_to_ast(f'void * {adr_name} = {"&" + tab_rw};'))
+            if ref_is_read:  # insert LD
                 content.insert(2, expr_c_to_ast(Gencode.cgen_dma_ld(*cgen_dma_args)))
-            if ref_is_write: # Insert ST
+            if ref_is_write:  # Insert ST
                 content.append(expr_c_to_ast(Gencode.cgen_dma_st(*cgen_dma_args)))
-            dma_efficiency = loops_ref_access_l_cum[-1]/DMA_SIZE
+            dma_efficiency = loops_ref_access_l_cum[-1] / DMA_SIZE
             # Update ref
-            ref.name.name = buffer_name # Only to change name ID name
-    
-            
+            ref.name.name = buffer_name  # Only to change name ID name
+
         elif IL == 0:
             # Divise elementary loop
             raise Exception("Unimplemented TODO")
@@ -402,11 +428,11 @@ class AstToolkit:
 
             # Find the for @ IL
             inner_top_for = for_nodes[IL]
-            ast_sub_for = inner_top_for.stmt # compound.pop(position)
+            ast_sub_for = inner_top_for.stmt  # compound.pop(position)
             # print(ast_to_c_highlight(ast_sub_for))
 
             # replace tab <-> BUFF
-            # TODO outdated
+            # TODO outdated (/!\ smaller cube)
             buff_adr = "+".join(
                 chain(
                     (
@@ -416,30 +442,63 @@ class AstToolkit:
                             chain((1,), loops_access_l_cum[0:IL]),
                         )
                     ),
-                    (f"mm*{loops_access_l_cum[IL-1]}",),
+                    (f"{iter_name}*{loops_access_l_cum[IL-1]}",),
                 )
             )
             ast_buff = expr_c_to_ast(f"{buffer_name}[{buff_adr}]")
-            # print(ast_to_c_highlight(ast_buff))
+
             ref.name = ast_buff.name  # Copy node
             ref.subscript = ast_buff.subscript
-            inds = (name if i > IL - 1 else 0 for i, name in enumerate(ref_access_names))
-            tab_rw = ref_name + "".join(reversed(list((f"[{index}]" for index in inds))))
-            # print(f"substitute ref->{(buff_rw)} mapped @ {(tab_rw)}")
+            inds = (
+                name if i > IL - 1 else 0 for i, name in enumerate(ref_access_names)
+            )
+            tab_rw = ref_name + "".join(
+                reversed(list((f"[{index}]" for index in inds)))
+            )
+            print(f"substitute {(tab_rw)} # mapped @ {buffer_name}s")
             # print(ast_to_c_highlight(ast_sub_for))
-            
-            stmts=[]
+
+            stmts = []
             stmts.append(stmt_c_to_ast(f'void * {adr_name} = {"&" + tab_rw};'))
-            stmts.append(stmt_c_to_ast(f'int {size_name} = MIN({dma_transfer_size}, ({loops_access_l[IL]}-{loops_access_names[IL]})*{nb_repeat_int}*{loops_access_l_cum[IL-1]});'))
+            stmts.append(
+                stmt_c_to_ast(
+                    f"int {size_name} = MIN({dma_transfer_size}, ({loops_access_l[IL]}-{loops_access_names[IL]})*{nb_repeat_int}*{loops_access_l_cum[IL-1]});"
+                )
+            )
             if ref_is_read:
-                stmts.append(stmt_c_to_ast(f'{Gencode.cgen_dma_ld(*cgen_dma_args)};'))
-            stmts.append(c_ast.For(expr_c_to_ast(f'int mm = {0}'),
-                             expr_c_to_ast(f'mm < {nb_repeat_int} && {loops_access_names[IL]} < {loops_access_l[IL]}'),
-                             expr_c_to_ast(f'mm++, {loops_access_names[IL]}++'),
-                             ast_sub_for))
+                stmts.append(stmt_c_to_ast(f"{Gencode.cgen_dma_ld(*cgen_dma_args)};"))
+
+            if nb_residual_int:
+                body = c_ast.Compound(
+                    [
+                        c_ast.If(
+                            expr_c_to_ast(
+                                f"{loops_access_names[IL]} < {loops_access_l[IL]}"
+                            ),
+                            c_ast.Compound(
+                                [
+                                    ast_sub_for,
+                                    expr_c_to_ast(f"{loops_access_names[IL]}++"),
+                                ]
+                            ),
+                            None,
+                        )
+                    ]
+                )
+            else:
+                body = ast_sub_for
+
+            stmts.append(
+                c_ast.For(
+                    expr_c_to_ast(f"int {iter_name} = {0}"),
+                    expr_c_to_ast(f"{iter_name} < {nb_repeat_int}"),
+                    expr_c_to_ast(f"{iter_name}++"),
+                    body,
+                )
+            )
             if ref_is_write:
-                stmts.append(stmt_c_to_ast(f'{Gencode.cgen_dma_st(*cgen_dma_args)};'))
-            stmts.append(stmt_c_to_ast(f'{loops_access_names[IL]}--;')) # TODO Beark
+                stmts.append(stmt_c_to_ast(f"{Gencode.cgen_dma_st(*cgen_dma_args)};"))
+            stmts.append(stmt_c_to_ast(f"{loops_access_names[IL]}--;"))  # TODO Beark
 
             ast_intermediate = c_ast.Compound(stmts)
             # print(ast_to_c_highlight(ast_intermediate))

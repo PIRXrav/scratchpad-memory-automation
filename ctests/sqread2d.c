@@ -20,6 +20,19 @@ void GENV(void){
     }
 }
 
+
+
+#define TAB1N 1234
+int tab1[TAB1N][2];
+
+void multiplicity_test(void){
+    for(int i = 0; i < TAB1N; i++){
+        for(int j = 0; j < 2; j++){
+            tab1[i][j] = i+j;
+        }
+    }
+}
+
 int main(void){
     int res = 0;
 

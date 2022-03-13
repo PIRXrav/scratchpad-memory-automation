@@ -52,6 +52,16 @@ def compound_c_to_ast(code):
         print(c_highight(code))
         raise
 
+
+def stmt_c_to_ast(code):
+    res = compound_c_to_ast(f"{code}")
+    if len(res.block_items) != 1:
+        print("Error Gencode; invalid code:")
+        print(c_highight(code))
+        print(res)
+        raise
+    return res.block_items[0]
+
 def expr_c_to_ast(code):
     res = compound_c_to_ast(f"{code};")
     if len(res.block_items) != 1:
@@ -447,21 +457,19 @@ class AstToolkit:
         cgen_dma_args = (adr_name, buffer_name, size_name)
 
         if IL == -1:
-            # Just LD/ST before loop
+            # Compute memory mapping
+            inds = (0 for i, name in enumerate(ref_access_names))
+            tab_rw = ref_name + "".join(reversed(list((f"[{index}]" for index in inds))))
+            print(f"substitute {(tab_rw)} # mapped @ {buffer_name}s")
+            # Insert transactions
             top_for = for_nodes[-1].c_ast_node
-            outter_top_for = self.ast_get_upper_node(top_for)
-            content = outter_top_for.block_items
-            # Insert addr
-            inst = expr_c_to_ast(f'int {size_name} = {loops_ref_access_l_cum[-1]}')
-            content.insert(0, inst)
-            # Insert LD/ST
-            outter_top_for_indx = content.index(top_for)
-            if mref.is_write:
-                inst = expr_c_to_ast(Gencode.cgen_dma_st(*cgen_dma_args))
-                content.insert(outter_top_for_indx+1, inst)
-            if mref.is_read:
-                inst = expr_c_to_ast(Gencode.cgen_dma_ld(*cgen_dma_args))
-                content.insert(outter_top_for_indx, inst)
+            content = self.ast_get_upper_node(top_for).block_items
+            content.insert(0, stmt_c_to_ast(f'int {size_name} = {loops_ref_access_l_cum[-1]};'))
+            content.insert(1, stmt_c_to_ast(f'void * {adr_name} = {"&" + tab_rw};'))           
+            if mref.is_read: # insert LD
+                content.insert(2, expr_c_to_ast(Gencode.cgen_dma_ld(*cgen_dma_args)))
+            if mref.is_write: # Insert ST
+                content.append(expr_c_to_ast(Gencode.cgen_dma_st(*cgen_dma_args)))
             dma_efficiency = loops_ref_access_l_cum[-1]/DMA_SIZE
             # Update ref
             mref.c_ast_node.name.name = buffer_name # Only to change name ID name
@@ -487,6 +495,7 @@ class AstToolkit:
             # print(ast_to_c_highlight(ast_sub_for))
 
             # replace tab <-> BUFF
+            # TODO outdated
             buff_adr = "+".join(
                 chain(
                     (
@@ -499,8 +508,7 @@ class AstToolkit:
                     (f"mm*{loops_access_l_cum[IL-1]}",),
                 )
             )
-            buff_rw = f"{buffer_name}[{buff_adr}]"
-            ast_buff = expr_c_to_ast(buff_rw)
+            ast_buff = expr_c_to_ast(f"{buffer_name}[{buff_adr}]")
             # print(ast_to_c_highlight(ast_buff))
             mref.c_ast_node.name = ast_buff.name  # Copy node
             mref.c_ast_node.subscript = ast_buff.subscript
@@ -508,19 +516,22 @@ class AstToolkit:
             tab_rw = ref_name + "".join(reversed(list((f"[{index}]" for index in inds))))
             # print(f"substitute ref->{(buff_rw)} mapped @ {(tab_rw)}")
             # print(ast_to_c_highlight(ast_sub_for))
+            
+            stmts=[]
+            stmts.append(stmt_c_to_ast(f'void * {adr_name} = {"&" + tab_rw};'))
+            stmts.append(stmt_c_to_ast(f'int {size_name} = MIN({dma_transfer_size}, ({loops_access_l[IL]}-{loops_access_names[IL]})*{nb_repeat_int}*{loops_access_l_cum[IL-1]});'))
+            if mref.is_read:
+                stmts.append(stmt_c_to_ast(f'{Gencode.cgen_dma_ld(*cgen_dma_args)};'))
+            stmts.append(c_ast.For(expr_c_to_ast(f'int mm = {0}'),
+                             expr_c_to_ast(f'mm < {nb_repeat_int} && {loops_access_names[IL]} < {loops_access_l[IL]}'),
+                             expr_c_to_ast(f'mm++, {loops_access_names[IL]}++'),
+                             ast_sub_for))
+            if mref.is_write:
+                stmts.append(stmt_c_to_ast(f'{Gencode.cgen_dma_st(*cgen_dma_args)};'))
+            stmts.append(stmt_c_to_ast(f'{loops_access_names[IL]}--;')) # TODO Beark
 
-            # ALGO 3; Note the {ast_to_c(ast_sub_for)}
-            algo_c = (''
-                + f'void * {adr_name} = {"&" + tab_rw};\n'
-                + f'int {size_name} = MIN({dma_transfer_size}, ({loops_access_l[IL]}-{loops_access_names[IL]})*{nb_repeat_int}*{loops_access_l_cum[IL-1]});\n'
-                + (f'{Gencode.cgen_dma_ld(*cgen_dma_args)};\n' if mref.is_read is True else '')
-                + f"for(int mm = 0; mm < {nb_repeat_int} && {loops_access_names[IL]} < {loops_access_l[IL]}; mm++, {loops_access_names[IL]}++){{{ast_to_c(ast_sub_for)}}}\n"
-                + (f'{Gencode.cgen_dma_st(*cgen_dma_args)}\n;' if mref.is_write is True else '')
-                + f'{loops_access_names[IL]}--;' # TODO Beark
-            )
-            ast_intermediate = compound_c_to_ast(algo_c)
+            ast_intermediate = c_ast.Compound(stmts)
             # print(ast_to_c_highlight(ast_intermediate))
-
             inner_top_for.stmt = ast_intermediate
 
         return dma_efficiency

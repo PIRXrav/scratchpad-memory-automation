@@ -96,14 +96,18 @@ def c_highight(code):
 
 def c_ast_For_extract_l(node):
     """Return the for Bounds"""
-    var_loop_name = node.init.decls[0].name
     # /!\ Very restrictive
-    assert node.init.decls[0].init.value == "0"
-    assert node.cond.op == "<"
-    assert node.cond.left.name == var_loop_name
-    l = node.cond.right.value
-    return (var_loop_name, int("0"), int(l))
-
+    try:
+        var_loop_name = node.init.decls[0].name    
+        assert node.init.decls[0].init.value == "0"
+        assert node.cond.op == "<"
+        assert node.cond.left.name == var_loop_name
+        l = node.cond.right.value
+        return (var_loop_name, int("0"), int(l))
+    except:
+        print('Invalid for:')
+        print(ast_to_c_highlight(node))
+        raise
 
 def c_ast_get_for_fathers(ast, node):
     class ForFathersVisitor(c_ast.NodeVisitor):
@@ -282,19 +286,18 @@ class AstToolkit:
             print("TOP FORS:")
             print(ast_to_c_highlight(topfor))
             refs = c_ast_get_all_top_ref(topfor)
-            print("TOP REFS:")
-            for ref in refs:
+            nb_refs = len(refs)
+            print(f"TOP REFS ({nb_refs}):")
+            for i, ref in enumerate((refs)):
                 print(f'{ast_to_c(ref):20} RW={c_ast_ref_is_rw(ast, ref)}')
-            
-            for ref in [refs[0]]:
-                self.dma_mapping_algo3(ref)
+                self.dma_mapping_algo3(ref, i)
 
     def exportc(self):
         generator = c_generator.CGenerator()
         return generator.visit(self.ast)
 
 
-    def dma_mapping_algo3(self, ref):
+    def dma_mapping_algo3(self, ref, iref):
         """ """
         ast = self.ast
         # Analyse reference
@@ -331,7 +334,6 @@ class AstToolkit:
         if ref_access_names != loops_access_names:
             # is lower cube ?
             def contain_ordered(listin, data):
-                print(listin, data)
                 if listin == []:
                     return True
                 if data == []:
@@ -360,9 +362,9 @@ class AstToolkit:
 
         print(f"{IL=}")
 
-        buffer_name = "__SMA__dma0"
-        adr_name = '__SMA__adr0'
-        size_name = '__SMA__size0'
+        buffer_name = f'__SMA__dma{iref}'
+        adr_name = f'__SMA__adr{iref}'
+        size_name = f'__SMA__size{iref}'
         cgen_dma_args = (adr_name, buffer_name, size_name)
 
         if IL == -1:

@@ -12,11 +12,12 @@ C src
 
 from operator import index
 import sys
-from pycparser import parse_file, c_generator, CParser
 
+from pycparser import parse_file, c_generator, CParser
 from pycparser import c_ast
 
 from collections import defaultdict
+from itertools import chain
 
 
 from pygments import highlight
@@ -93,305 +94,209 @@ def c_highight(code):
     return highlight(code, CLexer(), TerminalFormatter(bg="dark", linenos=True))
 
 
-class MyVisitor(c_ast.NodeVisitor):
-    def __init__(self):
-        self.stack = []
-
-    def visit_For(self, node):
-        res = MyFor(node)
-
-        self.stack.append(res.inner)
-        self.visit(node.stmt)
-        self.stack.pop()
-
-        self.stack[-1].append(res)
-
-    def visit_FuncDef(self, node):
-        # decl, param_decs, body
-        res = MyFuncDef(node)
-
-        self.stack.append(res.inner)
-        self.visit(node.body)
-        self.stack.pop()
-
-        self.stack[-1].append(res)
-
-    def visit_ArrayRef(self, node):
-        # name, subscript
-        res = MyArrayRef(node)
-        self.stack[-1].append(res)
-
-    def visit_FileAST(self, node):
-        # ext
-        res = MyFileAST(node)
-
-        self.stack.append(res.inner)
-        self.visit(node.ext)
-        self.stack.pop()
-
-        self.stack.append(res)
+def c_ast_For_extract_l(node):
+    """Return the for Bounds"""
+    var_loop_name = node.init.decls[0].name
+    # /!\ Very restrictive
+    assert node.init.decls[0].init.value == "0"
+    assert node.cond.op == "<"
+    assert node.cond.left.name == var_loop_name
+    l = node.cond.right.value
+    return (var_loop_name, int("0"), int(l))
 
 
-from itertools import chain
+def c_ast_get_for_fathers(ast, node):
+    class ForFathersVisitor(c_ast.NodeVisitor):
+        def __init__(self, node):
+            self.node = node
+            self.forfathers = None
+            self.stack = []
 
+        def visit_For(self, node):
+            self.stack.append(node)
+            for n in node:
+                self.visit(n)
+            self.stack.pop()
 
-class MyNode:
+        def generic_visit(self, node):
+            if node == self.node:
+                self.forfathers = list(reversed(self.stack))
+            else:
+                for n in node:
+                    self.visit(n)
+        
+    nv = ForFathersVisitor(node)
+    nv.visit(ast)
+    return nv.forfathers
 
-    rd = " | "
+def c_ast_get_all_top_ref(node):
+    class AllRefVisitor(c_ast.NodeVisitor):
+        def __init__(self):
+            self.refs = []
 
-    def __init__(self, node):
-        self.inner = []
-        self.c_ast_node = node
-        self.father = None
+        def visit_ArrayRef(self, node):
+            self.refs.append(node)
+        
+    nv = AllRefVisitor()
+    nv.visit(node)
+    return nv.refs
 
-    def update_fathers(self):
-        for node in self.inner:
-            node.father = self
-            node.update_fathers()
+def c_ast_get_upper_node(ast, node):
+    class UpperNodeVisitor(c_ast.NodeVisitor):
+        def __init__(self, node):
+            self.node = node
+            self.uppernode = None
+            self.compoundnode = None
 
-    def get_all_mrefs(self):
-        return (
-            [self]
-            if type(self) is MyArrayRef
-            else chain(*(mnode.get_all_mrefs() for mnode in self.inner))
+        def visit_Compound(self, node):
+            self.compoundnode = node
+            for n in node:
+                self.visit(n)
+
+        def generic_visit(self, node):
+            if node == self.node:
+                self.uppernode = self.compoundnode
+            for n in node:
+                self.visit(n)
+    
+    unv = UpperNodeVisitor(node)
+    unv.visit(ast)
+    uppernode = unv.uppernode
+    return uppernode
+
+def c_ast_ref_get_l(ref):
+    """
+    Analyse the reference
+    """
+    class RefVisitor(c_ast.NodeVisitor):
+        """
+        ArrayRef(name=ArrayRef(name=ID(name='tab0'
+                                    ),
+                            subscript=ID(name='j'
+                                            )
+                            ),
+                subscript=ID(name='i'
+                            )
         )
-
-    def iter_father(self):
-        mnode = self
-        while not mnode.father is None:
-            yield mnode
-            mnode = mnode.father
-
-    def render(self):
-        pass
-
-    def __str__(self):
-        return self.render(0)
-
-
-class MyFileAST(MyNode):
-    def __init__(self, node):
-        super().__init__(node)
-
-    def render(self, dept):
-        res = self.rd * dept + "FILE\n"
-        for mnode in self.inner:
-            res += mnode.render(dept + 1)
-        return res
-
-
-class MyFuncDef(MyNode):
-    def __init__(self, node):
-        super().__init__(node)
-
-    def render(self, dept):
-        res = self.rd * dept + "FUNC " + ast_to_c(self.c_ast_node.decl) + "\n"
-        for mnode in self.inner:
-            res += mnode.render(dept + 1)
-        return res
-
-
-class MyFor(MyNode):
-    def __init__(self, node):
-        super().__init__(node)
-        # TODO check bonded
-
-    def render(self, dept):
-        def str_For(node):
-            return "; ".join(map(ast_to_c, (node.init, node.cond, node.next)))
-
-        res = self.rd * dept + "FOR " + str_For(self.c_ast_node) + "\n"
-        for mnode in self.inner:
-            res += mnode.render(dept + 1)
-        return res
-
-    def extract_l(self):
-        """Return the for Bounds"""
-        # print(self.c_ast_node)
-        var_loop_name = self.c_ast_node.init.decls[0].name
-        # /!\ Very restrictive
-        assert self.c_ast_node.init.decls[0].init.value == "0"
-        assert self.c_ast_node.cond.op == "<"
-        assert self.c_ast_node.cond.left.name == var_loop_name
-        l = self.c_ast_node.cond.right.value
-        return (var_loop_name, int("0"), int(l))
-
-
-class MyArrayRef(MyNode):
-    def __init__(self, node):
-        super().__init__(node)
-        # TODO check array constant/i acces
-        self.is_write = None
-        self.is_read = None
-
-    def render(self, dept):
-        return self.rd * dept + "REF " + ast_to_c(self.c_ast_node) + "\n"
-
-    def extract_l_tree(self):
+        return ['tab0', 'j', 'i']
         """
-        l_tree format : [(i_name, 0, N), (i_name2, 0, M), ...]
-        """
-        return (
-            mfor_node.extract_l()
-            for mfor_node in filter(lambda x: type(x) is MyFor, self.iter_father())
-        )
 
-    def analyse(self):
-        """
-        Analyse the reference
-        """
-        class RefVisitor(c_ast.NodeVisitor):
-            """
-            ArrayRef(name=ArrayRef(name=ID(name='tab0'
-                                        ),
-                                subscript=ID(name='j'
-                                                )
-                                ),
-                    subscript=ID(name='i'
-                                )
-            )
-            return ['tab0', 'j', 'i']
-            """
+        def __init__(self):
+            self.res = []
+            self.name = None
 
-            def __init__(self):
-                self.res = []
-                self.name = None
+        def generic_visit(self, node):
+            raise Exception("Did not visit a ref", node)
 
-            def generic_visit(self, node):
-                raise Exception("Did not visit a ref", node)
+        def visit_ArrayRef(self, node):
+            self.res.append(node.subscript.name)  # TODO i+k ...
+            self.visit(node.name)
 
-            def visit_ArrayRef(self, node):
-                self.res.append(node.subscript.name)  # TODO i+k ...
-                self.visit(node.name)
+        def visit_ID(self, node):
+            self.name = node.name
 
-            def visit_ID(self, node):
-                self.name = node.name
+    rv = RefVisitor()
+    rv.visit(ref)
+    return rv.name, rv.res
 
-        # Compute fathers list for nodes
-        for_nodes = list(filter(lambda x: type(x) is MyFor, self.iter_father()))
-        # Comute L value for all for nodes
-        l_tree = list(self.extract_l_tree())
+def c_ast_ref_analyse(ast, ref):
+    # Compute fathers list for nodes
+    for_nodes = c_ast_get_for_fathers(ast, ref)
+    # Comute L value for all for nodes
+    l_tree = list(map(c_ast_For_extract_l, for_nodes))
+    loops_access_l = [l[2] for l in l_tree]
+    loops_access_l_cum = list(np.cumprod(loops_access_l))
+    loops_access_names = [l[0] for l in l_tree]
 
-        loops_access_l = [l[2] for l in l_tree]
-        loops_access_l_cum = list(np.cumprod(loops_access_l))
-        loops_access_names = [l[0] for l in l_tree]
+    ref_name, ref_access_names = c_ast_ref_get_l(ref)
+    ref_is_read, ref_is_write  = c_ast_ref_is_rw(ast, ref)
+    return for_nodes, ref_name, ref_access_names, loops_access_names, loops_access_l, loops_access_l_cum, ref_is_read, ref_is_write
 
-        rv = RefVisitor()
-        rv.visit(self.c_ast_node)
-        ref_name, ref_access_names = rv.name, rv.res
-        return for_nodes, ref_name, ref_access_names, loops_access_names, loops_access_l, loops_access_l_cum
+def c_ast_get_all_topfor(ast):
+    class AllTopForVisitor(c_ast.NodeVisitor):
+        def __init__(self):
+            self.fors = []
 
+        def visit_For(self, node):
+            self.fors.append(node)
+            
+    nv = AllTopForVisitor()
+    nv.visit(ast)
+    return nv.fors
+
+
+def c_ast_ref_is_rw(ast, ref):
+    """
+    Test is_read, is_write to ArrayRef Node
+    """
+    class RefRWVisitor(c_ast.NodeVisitor):
+        def __init__(self, node):
+            # Default is READ only
+            self.is_write = False
+            self.is_read = True
+            self.node = node
+            self.res = None
+
+        def visit_Assignment(self, node):
+            # Check L value
+            self.is_write = True
+            self.is_read = not node.op == '=' # else # <= , >=, +=, ...
+            self.visit(node.lvalue)
+            
+            # Check R value
+            self.is_write = False
+            self.is_read = True
+            self.visit(node.rvalue)
+            
+            # Default is READ only
+            self.is_write = False
+            self.is_read = True
+
+        def visit_ArrayRef(self, node):
+            if node == self.node:
+                self.res = (self.is_read, self.is_write)
+
+    nv = RefRWVisitor(ref)
+    nv.visit(ast)
+    return nv.res
+    # # Check decoration
+    # for ref in c_ast_get_all_ref(ast):
+    #     try:
+    #         if ref.is_read == None:
+    #             raise
+    #         if ref.is_write == None:
+    #             raise
+    #     except:
+    #         Exception("Error occured during decorate_all_ref_rw")
+    # Impossible do decorate tree: __slots__ class :/
 
 class AstToolkit:
     def __init__(self, filename):
         # Compute pycparser ast
         self.ast = parse_file(filename, use_cpp=True)
-        # Compute our ast
-        mv = MyVisitor()
-        mv.visit(self.ast)
-        self.mast = mv.stack[-1]
-        self.mast.update_fathers()
-        for ref in self.mast.get_all_mrefs():  # TODO remove, use visitor
-            print(ref)
-        self.decorate_mrefs_rw()
-    
-    def mast_get_all_topfor(self):
-        for filenode in self.mast.inner:
-            for topfor in filenode.inner:
-                yield topfor
-
-    def decorate_mrefs_rw(self):
-        """
-        Add is_read, is_write to RefNode
-        """
-        class RefRWVisitor(c_ast.NodeVisitor):
-            """
-          
-            """
-            def __init__(self, mrefs):
-                self.mrefs = mrefs
-                # Default is READ only
-                self.is_write = False
-                self.is_read = True
-
-            def visit_Assignment(self, node):
-                # Check L value
-                self.is_write = True
-                self.is_read = not node.op == '=' # else # <= , >=, +=, ...
-                self.visit(node.lvalue)
-                
-                # Check R value
-                self.is_write = False
-                self.is_read = True
-                self.visit(node.rvalue)
-                
-                # Default is READ only
-                self.is_write = False
-                self.is_read = True
-
-            def visit_ArrayRef(self, node):
-                for mref in self.mrefs:
-                    if mref.c_ast_node == node:
-                        mref.is_read = self.is_read
-                        mref.is_write = self.is_write
-                        return
-                raise Exception("Unknown node", node)
-
-
-        rrwv = RefRWVisitor(list(self.mast.get_all_mrefs()))
-        rrwv.visit(self.ast)
-        # Check decoration
-        for mref in self.mast.get_all_mrefs():
-            if mref.is_read == None:
-                raise Exception("Error occured during decorate_mrefs_rw")
-            if mref.is_write == None:
-                raise Exception("Error occured during decorate_mrefs_rw")
-
-    def ast_get_upper_node(self, node):
-        class UpperNodeVisitor(c_ast.NodeVisitor):
-            def __init__(self, node):
-                self.node = node
-                self.uppernode = None
-                self.compoundnode = None
-
-            def visit_Compound(self, node):
-                self.compoundnode = node
-                for n in node:
-                    self.visit(n)
-
-            def generic_visit(self, node):
-                if node == self.node:
-                    self.uppernode = self.compoundnode
-                for n in node:
-                    self.visit(n)
-        
-        # print(self.ast)
-        unv = UpperNodeVisitor(node)
-        unv.visit(self.ast)
-        uppernode = unv.uppernode
-        return uppernode
-
-    def ast_insert_before_node(node, newnode):
-        raise Exception("Unimplemented")
-
+   
     def do_memory_mapping(self):
-        print(self.mast)
-        for topfor in list(self.mast_get_all_topfor()):
-            print("TOP for:")
-            print(topfor)
-            mrefs = list(topfor.get_all_mrefs())
-            print("MREFS:")
-            print("".join(map(str, mrefs)))
-            for mref in [mrefs[0]]:
-                self.dma_mapping_algo3(mref)
+        # print(self.mast)
+        ast = self.ast
+        for topfor in c_ast_get_all_topfor(ast):
+            print("TOP FORS:")
+            print(ast_to_c_highlight(topfor))
+            refs = c_ast_get_all_top_ref(topfor)
+            print("TOP REFS:")
+            for ref in refs:
+                print(f'{ast_to_c(ref):20} RW={c_ast_ref_is_rw(ast, ref)}')
+            
+            for ref in [refs[0]]:
+                self.dma_mapping_algo3(ref)
 
     def exportc(self):
         generator = c_generator.CGenerator()
         return generator.visit(self.ast)
 
 
-    def dma_mapping_algo3(self, mref):
+    def dma_mapping_algo3(self, ref):
         """ """
+        ast = self.ast
         # Analyse reference
         (
             for_nodes,
@@ -400,12 +305,16 @@ class AstToolkit:
             loops_access_names,
             loops_access_l,
             loops_access_l_cum,
-        ) = mref.analyse()
+            ref_is_read,
+            ref_is_write
+        ) = c_ast_ref_analyse(ast, ref)
 
+    
         loops_ref_access_l = [v if n in ref_access_names else 1 
                              for n, v in zip(loops_access_names, loops_access_l)]
         loops_ref_access_l_cum = list(np.cumprod(loops_ref_access_l))
-        
+
+        print("for_nodes=", list(map(type, for_nodes)))    
         print(f"{loops_access_names=}")
         print(f"{loops_access_l=}")
         print(f"{loops_access_l_cum=}")
@@ -415,8 +324,8 @@ class AstToolkit:
         print(f"{loops_ref_access_l=}")
         print(f"{loops_ref_access_l_cum=}")
 
-        print(f"{mref.is_read=}")
-        print(f"{mref.is_write=}")
+        print(f"{ref_is_read=}")
+        print(f"{ref_is_write=}")
         
         # Not a cube
         if ref_access_names != loops_access_names:
@@ -462,17 +371,17 @@ class AstToolkit:
             tab_rw = ref_name + "".join(reversed(list((f"[{index}]" for index in inds))))
             print(f"substitute {(tab_rw)} # mapped @ {buffer_name}s")
             # Insert transactions
-            top_for = for_nodes[-1].c_ast_node
-            content = self.ast_get_upper_node(top_for).block_items
+            top_for = for_nodes[-1]
+            content = c_ast_get_upper_node(ast, top_for).block_items
             content.insert(0, stmt_c_to_ast(f'int {size_name} = {loops_ref_access_l_cum[-1]};'))
             content.insert(1, stmt_c_to_ast(f'void * {adr_name} = {"&" + tab_rw};'))           
-            if mref.is_read: # insert LD
+            if ref_is_read: # insert LD
                 content.insert(2, expr_c_to_ast(Gencode.cgen_dma_ld(*cgen_dma_args)))
-            if mref.is_write: # Insert ST
+            if ref_is_write: # Insert ST
                 content.append(expr_c_to_ast(Gencode.cgen_dma_st(*cgen_dma_args)))
             dma_efficiency = loops_ref_access_l_cum[-1]/DMA_SIZE
             # Update ref
-            mref.c_ast_node.name.name = buffer_name # Only to change name ID name
+            ref.name.name = buffer_name # Only to change name ID name
     
             
         elif IL == 0:
@@ -490,7 +399,7 @@ class AstToolkit:
             print(f"{dma_transfer_size=}/{DMA_SIZE=} = {dma_transfer_size/DMA_SIZE}")
 
             # Find the for @ IL
-            inner_top_for = for_nodes[IL].c_ast_node
+            inner_top_for = for_nodes[IL]
             ast_sub_for = inner_top_for.stmt # compound.pop(position)
             # print(ast_to_c_highlight(ast_sub_for))
 
@@ -510,8 +419,8 @@ class AstToolkit:
             )
             ast_buff = expr_c_to_ast(f"{buffer_name}[{buff_adr}]")
             # print(ast_to_c_highlight(ast_buff))
-            mref.c_ast_node.name = ast_buff.name  # Copy node
-            mref.c_ast_node.subscript = ast_buff.subscript
+            ref.name = ast_buff.name  # Copy node
+            ref.subscript = ast_buff.subscript
             inds = (name if i > IL - 1 else 0 for i, name in enumerate(ref_access_names))
             tab_rw = ref_name + "".join(reversed(list((f"[{index}]" for index in inds))))
             # print(f"substitute ref->{(buff_rw)} mapped @ {(tab_rw)}")
@@ -520,13 +429,13 @@ class AstToolkit:
             stmts=[]
             stmts.append(stmt_c_to_ast(f'void * {adr_name} = {"&" + tab_rw};'))
             stmts.append(stmt_c_to_ast(f'int {size_name} = MIN({dma_transfer_size}, ({loops_access_l[IL]}-{loops_access_names[IL]})*{nb_repeat_int}*{loops_access_l_cum[IL-1]});'))
-            if mref.is_read:
+            if ref_is_read:
                 stmts.append(stmt_c_to_ast(f'{Gencode.cgen_dma_ld(*cgen_dma_args)};'))
             stmts.append(c_ast.For(expr_c_to_ast(f'int mm = {0}'),
                              expr_c_to_ast(f'mm < {nb_repeat_int} && {loops_access_names[IL]} < {loops_access_l[IL]}'),
                              expr_c_to_ast(f'mm++, {loops_access_names[IL]}++'),
                              ast_sub_for))
-            if mref.is_write:
+            if ref_is_write:
                 stmts.append(stmt_c_to_ast(f'{Gencode.cgen_dma_st(*cgen_dma_args)};'))
             stmts.append(stmt_c_to_ast(f'{loops_access_names[IL]}--;')) # TODO Beark
 

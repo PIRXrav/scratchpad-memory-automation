@@ -236,14 +236,14 @@ class NoThrowAttr(Node):
         self.range = range
     
     def c(self):
-         return '__NO_THROW' # TODO
+         return ' __THROW' # TODO
 
 class RestrictAttr(Node):
     def __init__(self, range=None):
         self.range = range
 
     def c(self):
-         return '__RESTRICT' # TODO
+         return ' __wur' # TODO
 
 class BuiltinAttr(Node):
     def __init__(self, range=None, inherited=None, implicit=None):
@@ -252,7 +252,7 @@ class BuiltinAttr(Node):
         self.implicit = implicit
 
     def c(self):
-         return '__BUILTIN' # TODO
+         return f'__BUILTIN({self.range=})' # TODO
 
 class FormatAttr(Node):
     def __init__(self, range=None, implicit=None, inherited=None):
@@ -261,7 +261,7 @@ class FormatAttr(Node):
         self.inherited = inherited
     
     def c(self):
-        return '__FORMAT' # TODO
+        return f'__FORMAT({self.range=})' # TODO
         
 class AsmLabelAttr(Node):
     def __init__(self, range=None):

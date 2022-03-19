@@ -30,20 +30,24 @@ def compile_and_run(ccode):
 
 
 
-from analyser import AstToolkit
-from analyser import c_highight
+from asttools import ast_to_c
+from asttools import c_highight
 import sys
 
 def main(filename):
     # Generate C code
-    ast = AstToolkit(filename)
-    ast.do_memory_mapping()
-    ccode = ast.exportc()
-    # Append DMA Header
-    ccode = '#include "dma.h"\n' + ccode
-    print(c_highight(ccode))
+    
+    funast = kernel_generate('gemv', {'N': 64, 'M': 64})
+    print(c_highlight(ast_to_c(funast)))
 
-    compile_and_run(ccode)
+    ast = do_memory_mapping()
+    code = ast_to_c(ast)
+    # Append DMA Header
+    code = '#include "dma.h"\n' + code
+
+    print(c_highight(code))
+
+    compile_and_run(code)
     compile_and_run_file(filename)
 
 if __name__ == "__main__":

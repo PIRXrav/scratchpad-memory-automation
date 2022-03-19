@@ -1,3 +1,5 @@
+__VERSION__ = 'alpha'
+
 from parse import parse
 from collections import defaultdict
 from subprocess import check_output
@@ -87,11 +89,6 @@ def kernel_generate(kernel_name, user_config):
         if decl.__class__ != c_ast.Decl:
             raise Exception(f"Malformed file: {decl} is not of type Decl")
 
-    print("=== GENERATE KERNEL ===")
-    print(f"{'name':>10}: {kernel_name}")
-    for cfg, val in config.items():
-        print(f"{cfg:>10}: {val}")
-
     for ksec in KERNEL_CODE_SECTIONS:
         print(ksec + ": ")
         print(c_highlight(ast_to_c(sectionsast[ksec])))
@@ -109,11 +106,40 @@ def kernel_generate(kernel_name, user_config):
         fun_arg_list.append(expr_c_to_ast(f'void *{arg_name}'))
     
     # Update function name
-    fun_set_name(fun, fun_get_name(fun) + 
-                 ''.join(map(lambda c: '_' + ''.join(map(str, c)), config.items())))
+    fun_name = fun_get_name(fun) + ''.join(map(lambda c: '_' + ''.join(map(str, c)), config.items()))
+    fun_set_name(fun, fun_name)
 
-    return fun
+    return sectionsast['FUN'], sectionspp, config, fun_name
 
 
-funast = kernel_generate('gemv', {'N': 64, 'M': 64})
-print(c_highlight(ast_to_c(funast)))
+def comment_header(title, **kwargs):
+    ident = lambda s: s.replace('\n', '\n' + (' ' * 10 + ' | '))
+    comment = lambda s: ' * ' + s.replace('\n', '\n * ')
+    raw = "\n".join((f"{k:>10} : {ident(str(v))}" for k, v in kwargs.items()))
+    return f"/**{title}\n *\n" + comment(raw) + "\n *\n */\n\n"
+
+
+import datetime
+import sys
+
+def kernel_generate_header(kernel_name, user_config):
+    fun, sectionspp, config, fun_name = kernel_generate(kernel_name, user_config)
+    filename = fun_name + '.h'
+    code = ''
+    code += comment_header(f' GENERATED FILE: {filename}',
+                           Function=fun_name,
+                           Version=__VERSION__,
+                           Python=sys.version,
+                           Date=datetime.datetime.now(),
+                           **config,
+                           **sectionspp)
+    code += '#include "dma.h"\n'
+    code += '\n'
+    code += ast_to_c(fun)
+    return filename, code
+
+if __name__ == '__main__':
+    filename, code = kernel_generate_header('gemv', {'N': 42, 'M': 64})
+    print(c_highlight(code))
+    with open(filename, 'w') as f:
+        f.write(code)

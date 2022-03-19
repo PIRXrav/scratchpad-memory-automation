@@ -270,3 +270,20 @@ def c_ast_ref_is_rw(ast, ref):
     #         Exception("Error occured during decorate_all_ref_rw")
     # Impossible do decorate tree: __slots__ class :/
 
+
+def delc_to_ptr_decl(decl):
+    """Convert a decl to a pointer of the same type
+    """
+    if decl.type.__class__ == c_ast.ArrayDecl:
+        decl.type = c_ast.PtrDecl([], decl.type.type)
+    else:
+        raise Exception(f"Unimplemented type: {decl.type}")
+    # print(c_to_ast('int (*tab)[N];'))
+    return decl
+
+def fun_get_name(fun):
+    return fun.decl.name
+
+def fun_set_name(fun, name):
+    fun.decl.type.type.declname = name
+    fun.decl.name = name

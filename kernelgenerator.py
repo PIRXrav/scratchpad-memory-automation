@@ -3,10 +3,13 @@ from collections import defaultdict
 from subprocess import check_output
 
 from asttools import c_highlight
-from asttools import c_to_ast, ast_to_c
+from asttools import c_to_ast, ast_to_c, stmt_c_to_ast, expr_c_to_ast
+from asttools import delc_to_ptr_decl
+
+from asttools import fun_get_name, fun_set_name
 
 from dmamapping import do_memory_mapping
-
+from pycparser import c_ast
 
 def path_of_kernel(kernel_name):
     return f'kernels/{kernel_name}.c'
@@ -37,18 +40,13 @@ def kernel_get_sections(kernel_name):
                 if clean_string(line) != "":
                     sections[current_section] += line
     
-    # Verify sections
+    # Get config
     config = {}
-    # Verify DEF
     for line in sections['DEF'].split('\n'):
         s = parse("#define {} {}", line)
         if (s):
             config[s[0]] = s[1]
-    # Verify FUN
-    cfun = sections['FUN'].split('\n')[0]
-    s = parse("void {}(void){}", sections['FUN'])
-    if s is None:
-        raise Exception("Malformed file: invalid section FUN")
+
     return sections, config
 
 
@@ -65,24 +63,57 @@ def cppcode(code, config):
 
 def kernel_generate(kernel_name, user_config):
     sections, config = kernel_get_sections(kernel_name)
+    
+    sectionspp = {k: cppcode(sections[k], config) for k in KERNEL_CODE_SECTIONS}
+    sectionsast = {k: c_to_ast(code) for k, code in sectionspp.items()}
+    
+    # Verify file
     for cfg, val in config.items():
         if not cfg in user_config.keys():
             raise Exception(f"Unspecified configuration: {cfg}")
         config[cfg] = user_config[cfg]
     
+    fun = sectionsast['FUN'].ext[0]
+    if fun.__class__ != c_ast.FuncDef:
+        raise Exception(f"Malformed file: {fun} is not of type FuncDef")
+
+    if fun.decl.type.args != None:
+        raise Exception(f'Malformed file: function already has arguments')
+    fun_arg_list = []
+    fun.decl.type.args = c_ast.ParamList(fun_arg_list)
+
+    decls = sectionsast['ARG'].ext
+    for decl in decls:
+        if decl.__class__ != c_ast.Decl:
+            raise Exception(f"Malformed file: {decl} is not of type Decl")
+
     print("=== GENERATE KERNEL ===")
     print(f"{'name':>10}: {kernel_name}")
     for cfg, val in config.items():
         print(f"{cfg:>10}: {val}")
 
-    sectionspp = {k: cppcode(sections[k], config) for k in KERNEL_CODE_SECTIONS}
-    sectionsast = {k: c_to_ast(code) for k, code in sectionspp.items()}
-    
     for ksec in KERNEL_CODE_SECTIONS:
         print(ksec + ": ")
         print(c_highlight(ast_to_c(sectionsast[ksec])))
 
-    do_memory_mapping(sectionsast['FUN'])
-    print(c_highlight(ast_to_c(sectionsast['FUN'])))
+    # Memory mapping
+    do_memory_mapping(fun)
 
-kernel_generate('gemv', {'N': 64, 'M': 64})
+    # Add args
+    for decl in decls:
+        arg_name = decl.name + '_arg'
+        ptr_decl = delc_to_ptr_decl(decl)
+        ptr_decl.init = c_ast.ID(arg_name)
+        # Append arguments
+        fun.body.block_items.insert(0, ptr_decl)
+        fun_arg_list.append(expr_c_to_ast(f'void *{arg_name}'))
+    
+    # Update function name
+    fun_set_name(fun, fun_get_name(fun) + 
+                 ''.join(map(lambda c: '_' + ''.join(map(str, c)), config.items())))
+
+    return fun
+
+
+funast = kernel_generate('gemv', {'N': 64, 'M': 64})
+print(c_highlight(ast_to_c(funast)))

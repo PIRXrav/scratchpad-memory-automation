@@ -9,7 +9,7 @@ SMA_SOURCE = PREFIX+'sma_source.c'
 SMA_BIN = PREFIX+'sma_bin'
 
 CC = 'gcc'
-CFLAGS = '-Wall -Wextra -g -Idmasimulator'
+CFLAGS = '-Wall -Wextra -Werror -Idmasimulator -g'
 LDFLAGS = ''
 
 def write_c_file(filename, code):
@@ -19,10 +19,10 @@ def write_c_file(filename, code):
 from asttools import c_highlight
 import sys
 
-def main():
+def main(do_mem_mapping=True):
     # Generate C code    
     kernel = Kernel('gemv', {'N': 42, 'M': 64})
-    kernel.process(do_mem_mapping=False)
+    kernel.process(do_mem_mapping=do_mem_mapping)
 
     hname, hcode = kernel.generate_header()
     print(c_highlight(hcode))
@@ -44,7 +44,9 @@ def main():
     assert ret == 0
 
 if __name__ == "__main__":
-    main()
+    main(do_mem_mapping=False)
+    main(do_mem_mapping=True)
+    
     exit(0)
 
     if len(sys.argv) > 1:

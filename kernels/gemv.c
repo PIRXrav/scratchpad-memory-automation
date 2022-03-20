@@ -5,9 +5,9 @@
 
 //***SMA ARG
  
-float input[M];
-float output[N];
-float weights[N][M];
+char input[M];
+char output[N];
+char weights[N][M];
 
 
 //***SMA FUN

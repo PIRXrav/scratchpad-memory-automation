@@ -225,6 +225,7 @@ def dma_mapping_algo3(ast, ref, iref):
         else:
             body = ast_sub_for
 
+        body.block_items.insert(0, stmt_c_to_ast(f'{loops_access_names[IL]}++;'))
         stmts.append(
             c_ast.For(
                 expr_c_to_ast(f"int {iter_name} = {0}"),

@@ -1,4 +1,6 @@
 import subprocess
+from kernelgenerator import Kernel
+
 
 from isort import file
 
@@ -10,47 +12,41 @@ CC = 'gcc'
 CFLAGS = '-Wall -Wextra -g -Idmasimulator'
 LDFLAGS = ''
 
+def write_c_file(filename, code):
+    with open(filename, 'w') as f:
+        f.write(code)
 
-def compile_and_run_file(file):
-    # Compile
-    cmd = f'{CC} {CFLAGS} {LDFLAGS} {file} -o {SMA_BIN}'
+from asttools import c_highlight
+import sys
+
+def main():
+    # Generate C code    
+    kernel = Kernel('gemv', {'N': 42, 'M': 64})
+    kernel.process(do_mem_mapping=False)
+
+    hname, hcode = kernel.generate_header()
+    print(c_highlight(hcode))
+    cname, ccode = kernel.generate_benchmark()
+    print(c_highlight(ccode))
+    
+    hname = PREFIX + hname
+    cname = PREFIX + cname
+
+    write_c_file(hname, hcode)
+    write_c_file(cname, ccode)
+    
+    cmd = f'{CC} {CFLAGS} {LDFLAGS} {cname} -I{PREFIX} -o {SMA_BIN}'
     ret = subprocess.call(cmd, shell=True)
     assert ret == 0
     # Run
     cmd = f'{SMA_BIN}'
     ret = subprocess.call(cmd, shell=True)
-    return ret
-
-def compile_and_run(ccode):
-    # Write file
-    with open(SMA_SOURCE, 'w') as out_file:
-        out_file.write(ccode)
-    # Compile and run
-    return compile_and_run_file(SMA_SOURCE)
-
-
-
-from asttools import ast_to_c
-from asttools import c_highight
-import sys
-
-def main(filename):
-    # Generate C code
-    
-    funast = kernel_generate('gemv', {'N': 64, 'M': 64})
-    print(c_highlight(ast_to_c(funast)))
-
-    ast = do_memory_mapping()
-    code = ast_to_c(ast)
-    # Append DMA Header
-    code = '#include "dma.h"\n' + code
-
-    print(c_highight(code))
-
-    compile_and_run(code)
-    compile_and_run_file(filename)
+    assert ret == 0
 
 if __name__ == "__main__":
+    main()
+    exit(0)
+
     if len(sys.argv) > 1:
         main(sys.argv[1])
     else:

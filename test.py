@@ -90,9 +90,18 @@ def validation_kernel(kernel_name, config):
     return total_diff
 
 
-BIG_BENCHMARK = {"gemv": [{'M': m, 'N': n} for m, n in [(1, 1),(1, 64),(64, 1),(64, 61)]]}
+BIG_BENCHMARK = {"gemv": [{'M': m, 'N': n} for m, n in [(2, 2),
+                                                        (2, 64),
+                                                        (64, 2),
+                                                        (64, 64),
+                                                        (31, 13),
+                                                        (45, 12),
+                                                        (2, 34),
+                                                        (12, 4),
+                                                        (111, 111),
+                                                        (16, 128)]]}
 
-if __name__ == "__main__":
+def big_benchmark():
     for name, configs in BIG_BENCHMARK.items():
         log.info(f'Benchmark : {name} # {len(configs)}')
         for config in configs:
@@ -102,4 +111,13 @@ if __name__ == "__main__":
             else:
                 log.info('Test passed')
     
+
+if __name__ == "__main__":
+    big_benchmark()
+    res = validation_kernel("gemv", {'M': 16, 'N': 64})
+    if res:
+        raise Exception("Result differ")
+    else:
+        log.info('Test passed')
+
     exit(res)

@@ -34,7 +34,7 @@ from math import ceil, floor
 import logging
 
 log = logging.getLogger(__name__)
-log.setLevel(logging.INFO)
+log.setLevel(logging.DEBUG)
 
 
 DMA_SIZE = 129
@@ -83,13 +83,16 @@ def dma_mapping_algo3(ast, ref, iref):
         for n, v in zip(loops_access_names, loops_access_l)
     ]
     loops_ref_access_l_cum = list(np.cumprod(loops_ref_access_l))
-
+    ref_l = list(filter(lambda x: x!=1, loops_ref_access_l)) # TODO use def !
+    ref_l_cum = list(np.cumprod(ref_l))
     log.debug(f"for_nodes={list(map(type, for_nodes))}")
     log.debug(f"{loops_access_names=}")
     log.debug(f"{loops_access_l=}")
     log.debug(f"{loops_access_l_cum=}")
     log.debug(f"{ref_name=}")
     log.debug(f"{ref_access_names=}")
+    log.debug(f"{ref_l=}")
+    log.debug(f"{ref_l_cum=}")
     log.debug(f"{loops_ref_access_l=}")
     log.debug(f"{loops_ref_access_l_cum=}")
     log.debug(f"{ref_is_read=}")
@@ -125,7 +128,25 @@ def dma_mapping_algo3(ast, ref, iref):
         while DMA_SIZE > loops_ref_access_l_cum[IL]:
             IL += 1
 
+
+    # Find how to insert DMA LD/ST
+    IR = 0
+    if DMA_SIZE >= ref_l_cum[-1]:  # We only need to do 1 transfert
+        IR = -1
+    else:
+        while DMA_SIZE > ref_l_cum[IR]:
+            IR += 1
+
     log.debug(f"{IL=}")
+    log.debug(f"{IR=}")
+
+    if IR == -1: # Array < DMA
+        assert IR == IL
+    elif IR == 0: # Divise
+        raise Exception("Unimplemented")
+    else: # Repeat
+        pass 
+
 
     buffer_name = f"__SMA__dma{iref}"
     adr_name = f"__SMA__adr{iref}"
@@ -133,43 +154,48 @@ def dma_mapping_algo3(ast, ref, iref):
     iter_name = f"__SMA__i{iref}"
     cgen_dma_args = (adr_name, buffer_name, size_name)
 
+
     if IL == -1:
+        topcomp = at.c_ast_get_upper_node(ast, for_nodes[-1])
+    elif IL == 0:
+        raise Exception('Unimplemented')
+    else:
+        topcomp = for_nodes[IL].stmt
+    
+    if IR == -1: # Array < DMA
         # Compute memory mapping
         inds = (0 for i, name in enumerate(ref_access_names))
         tab_rw = ref_name + "".join(reversed(list((f"[{index}]" for index in inds))))
         log.debug(f"substitute {(tab_rw)} # mapped @ {buffer_name}")
         # Insert transactions
-        top_for = for_nodes[-1]
-        content = at.c_ast_get_upper_node(ast, top_for).block_items
-        content.insert(
+        topcomp.block_items.insert(
             0, stmt_c_to_ast(f"int {size_name} = {loops_ref_access_l_cum[-1]};")
         )
-        content.insert(1, stmt_c_to_ast(f'void * {adr_name} = {"&" + tab_rw};'))
+        topcomp.block_items.insert(1, stmt_c_to_ast(f'void * {adr_name} = {"&" + tab_rw};'))
         if ref_is_read:  # insert LD
-            content.insert(2, expr_c_to_ast(Gencode.cgen_dma_ld(*cgen_dma_args)))
+            topcomp.block_items.insert(2, expr_c_to_ast(Gencode.cgen_dma_ld(*cgen_dma_args)))
         if ref_is_write:  # Insert ST
-            content.append(expr_c_to_ast(Gencode.cgen_dma_st(*cgen_dma_args)))
+            topcomp.block_items.append(expr_c_to_ast(Gencode.cgen_dma_st(*cgen_dma_args)))
         dma_efficiency = loops_ref_access_l_cum[-1] / DMA_SIZE
         # Update ref
         buff_adr = "+".join(
             f"{i}*{cumprod}"
             for i, cumprod in zip(
                 ref_access_names,
-                chain((1,), loops_ref_access_l),
+                chain((1,), ref_l_cum[0:-1]),
             )
         )
         ast_buff = expr_c_to_ast(f"{buffer_name}[{buff_adr}]")
-
         ref.name = ast_buff.name  # Copy node
         ref.subscript = ast_buff.subscript
         ref.name.name = buffer_name  # Only to change name ID name
 
-    elif IL == 0:
-        # Divise elementary loop
+    elif IR == 0:
+        # Divise
         raise Exception("Unimplemented TODO")
         pass
     else:
-        # Repeat multiple time the elementary loop
+        # Repeat
         nb_repeat = DMA_SIZE / loops_access_l_cum[IL - 1]
         nb_repeat_int = floor(nb_repeat)
         dma_transfer_size = nb_repeat_int * loops_access_l_cum[IL - 1]
@@ -179,8 +205,10 @@ def dma_mapping_algo3(ast, ref, iref):
         log.debug(f"{dma_transfer_size=}/{DMA_SIZE=} = {dma_transfer_size/DMA_SIZE}")
 
         # Find the for @ IL
-        inner_top_for = for_nodes[IL]
-        ast_sub_for = inner_top_for.stmt  # compound.pop(position)
+        
+        ast_sub_for = c_ast.Compound(topcomp.block_items)
+        # print(at.ast_to_c_highlight(ast_sub_for))
+
         # print(ast_to_c_highlight(ast_sub_for))
 
         # replace tab <-> BUFF
@@ -191,7 +219,7 @@ def dma_mapping_algo3(ast, ref, iref):
                     f"{i}*{cumprod}"
                     for i, cumprod in zip(
                         ref_access_names[0:IL],
-                        chain((1,), loops_access_l_cum[0:IL]),
+                        chain((1,), ref_l_cum[0:IL]),
                     )
                 ),
                 (f"{iter_name}*{loops_access_l_cum[IL-1]}",),
@@ -204,7 +232,6 @@ def dma_mapping_algo3(ast, ref, iref):
         inds = (name if i > IL - 1 else 0 for i, name in enumerate(ref_access_names))
         tab_rw = ref_name + "".join(reversed(list((f"[{index}]" for index in inds))))
         log.debug(f"substitute {(tab_rw)} # mapped @ {buffer_name}s")
-        # print(ast_to_c_highlight(ast_sub_for))
 
         stmts = []
         stmts.append(stmt_c_to_ast(f'void * {adr_name} = {"&" + tab_rw};'))
@@ -223,7 +250,7 @@ def dma_mapping_algo3(ast, ref, iref):
                         expr_c_to_ast(
                             f"{loops_access_names[IL]} < {loops_access_l[IL]}"
                         ),
-                        c_ast.Compound([ast_sub_for]),
+                        ast_sub_for,
                         None,
                     )
                 ]
@@ -234,7 +261,7 @@ def dma_mapping_algo3(ast, ref, iref):
         body.block_items.append(stmt_c_to_ast(f"{loops_access_names[IL]}++;"))
         stmts.append(
             c_ast.For(
-                expr_c_to_ast(f"int {iter_name} = {0}"),
+                c_ast.DeclList(decls=[expr_c_to_ast(f"int {iter_name} = {0}")]),
                 expr_c_to_ast(f"{iter_name} < {nb_repeat_int}"),
                 expr_c_to_ast(f"{iter_name}++"),
                 body,
@@ -244,10 +271,11 @@ def dma_mapping_algo3(ast, ref, iref):
             stmts.append(stmt_c_to_ast(f"{Gencode.cgen_dma_st(*cgen_dma_args)};"))
         stmts.append(stmt_c_to_ast(f"{loops_access_names[IL]}--;"))  # TODO Beark
 
-        ast_intermediate = c_ast.Compound(stmts)
-        # print(ast_to_c_highlight(ast_intermediate))
-        inner_top_for.stmt = ast_intermediate
 
+        # print(ast_to_c_highlight(ast_intermediate))
+        topcomp.block_items = stmts
+    
+    # print(at.ast_to_c_highlight(ast))
     return dma_efficiency
 
 

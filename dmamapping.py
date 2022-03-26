@@ -137,7 +137,7 @@ def dma_mapping_algo3(ast, ref, iref):
         # Compute memory mapping
         inds = (0 for i, name in enumerate(ref_access_names))
         tab_rw = ref_name + "".join(reversed(list((f"[{index}]" for index in inds))))
-        log.debug(f"substitute {(tab_rw)} # mapped @ {buffer_name}s")
+        log.debug(f"substitute {(tab_rw)} # mapped @ {buffer_name}")
         # Insert transactions
         top_for = for_nodes[-1]
         content = at.c_ast_get_upper_node(ast, top_for).block_items
@@ -151,6 +151,17 @@ def dma_mapping_algo3(ast, ref, iref):
             content.append(expr_c_to_ast(Gencode.cgen_dma_st(*cgen_dma_args)))
         dma_efficiency = loops_ref_access_l_cum[-1] / DMA_SIZE
         # Update ref
+        buff_adr = "+".join(
+            f"{i}*{cumprod}"
+            for i, cumprod in zip(
+                ref_access_names,
+                chain((1,), loops_ref_access_l),
+            )
+        )
+        ast_buff = expr_c_to_ast(f"{buffer_name}[{buff_adr}]")
+
+        ref.name = ast_buff.name  # Copy node
+        ref.subscript = ast_buff.subscript
         ref.name.name = buffer_name  # Only to change name ID name
 
     elif IL == 0:

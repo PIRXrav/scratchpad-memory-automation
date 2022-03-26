@@ -85,18 +85,21 @@ def validation_kernel(kernel_name, config):
     for ff in zip(*tuple(files)):
         eq = filecmp.cmp(*ff)   
         total_diff += not eq
-        log.info(f'{ff[0]} and {ff[1]} {"are equals" if eq else "differ"}')
+        log.debug(f'{ff[0]} and {ff[1]} {"are equals" if eq else "differ"}')
 
     return total_diff
 
 
-BENCHMARK = {"gemv": [{'M': m, 'N': n} for m, n in [(1, 1),(1, 64),(64, 1),(64, 61)]]}
+BIG_BENCHMARK = {"gemv": [{'M': m, 'N': n} for m, n in [(1, 1),(1, 64),(64, 1),(64, 61)]]}
 
 if __name__ == "__main__":
-    res = validation_kernel("gemv", {"N": 10, "M": 31})
-    if res:
-        raise Exception("Result differ")
-    else:
-        log.info('Test passed')
+    for name, configs in BIG_BENCHMARK.items():
+        log.info(f'Benchmark : {name} # {len(configs)}')
+        for config in configs:
+            res = validation_kernel(name, config)
+            if res:
+                raise Exception("Result differ")
+            else:
+                log.info('Test passed')
     
     exit(res)

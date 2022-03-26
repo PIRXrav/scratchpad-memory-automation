@@ -150,6 +150,21 @@ class Kernel:
         return filename, code
 
 
+    def generate_benchmark_gdb(self, prefix=''):
+        decl_names = [d.name for d in self.decls]
+        dump_file_names = [prefix + d + '.bin' for d in decl_names]
+
+        fun_name = fun_get_name(self.fun)
+        filename = fun_name + '.gdb'
+        code = ''
+        code += 'b postbench\n'
+        code += 'run\n'
+        for dn, dump_file in zip(decl_names, dump_file_names):
+            code += f'dump binary memory {dump_file} {dn} (char*){dn} + sizeof({dn})\n'
+        code += 'c\n'
+        return filename, code, dump_file_names
+
+
     def generate_benchmark(self):
         decl_names = [d.name for d in self.decls]
         fun_name = fun_get_name(self.fun)
@@ -167,21 +182,27 @@ class Kernel:
         code += f'#include <stdio.h>\n'
         code += f'#include <stdint.h>\n'
         code += argpp
-        code += f'int main(void){{\n'
-        code += f'    printf("Run benchmark {fun_name}\\n");\n'
-        code += f'    /* Initialisation */\n'
-        code += f'    //printf("Init ...\\n");\n'
-        for dn in decl_names:
-            code += f'    for (size_t i = 0; i < sizeof({dn}); i++) {{*((char*){dn}+i) = (char)i;}}\n'
-        code += f'    /* Run */\n'
-        code += f'    //printf("Run ...\\n");\n'
-        code += f'    {fun_name}({", ".join(decl_names)});\n'
-        code += f'    /* Hash state */\n'
+        code += f'void postbench(void){{\n'
         code += f'    int64_t hash = 0;\n'
-        code += f'    //printf("Hash ...\\n");\n'
         for dn in decl_names:
             code += f'    for (size_t i = 0; i < sizeof({dn}); i++) {{hash += *((unsigned char*){dn}+i);}}\n'
         code += f'    printf("%ld\\n", hash);\n'
+        code += f'}}\n'
+        code += f'void prebench(void){{\n'
+        for dn in decl_names:
+            code += f'    for (size_t i = 0; i < sizeof({dn}); i++) {{*((char*){dn}+i) = (char)i;}}\n'
+        code += f'}}\n'
+        code += f'int main(void){{\n'
+        code += f'    printf("Run benchmark {fun_name}\\n");\n'
+        code += f'    /* prebench */\n'
+        code += f'    printf("prebench ...\\n");\n'
+        code += f'    prebench();'
+        code += f'    /* Run */\n'
+        code += f'    printf("Run ...\\n");\n'
+        code += f'    {fun_name}({", ".join(decl_names)});\n'
+        code += f'    /* postbench */\n'
+        code += f'    printf("postbench ...\\n");\n'
+        code += f'    postbench();'
         code += f'    return 0;'
         code += f'}}\n'
         return filename, code

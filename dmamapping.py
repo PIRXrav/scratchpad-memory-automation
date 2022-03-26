@@ -45,6 +45,7 @@ class Gencode:
 
 import sys
 
+
 def do_memory_mapping(ast):
     for topfor in at.c_ast_get_all_topfor(ast):
         print("TOP FORS:")
@@ -55,6 +56,7 @@ def do_memory_mapping(ast):
         for i, ref in enumerate((refs)):
             print(f"{at.ast_to_c(ref):20} RW={at.c_ast_ref_is_rw(ast, ref)}")
             dma_mapping_algo3(ast, ref, i)
+
 
 def dma_mapping_algo3(ast, ref, iref):
     """ """
@@ -130,9 +132,7 @@ def dma_mapping_algo3(ast, ref, iref):
     if IL == -1:
         # Compute memory mapping
         inds = (0 for i, name in enumerate(ref_access_names))
-        tab_rw = ref_name + "".join(
-            reversed(list((f"[{index}]" for index in inds)))
-        )
+        tab_rw = ref_name + "".join(reversed(list((f"[{index}]" for index in inds))))
         print(f"substitute {(tab_rw)} # mapped @ {buffer_name}s")
         # Insert transactions
         top_for = for_nodes[-1]
@@ -186,12 +186,8 @@ def dma_mapping_algo3(ast, ref, iref):
 
         ref.name = ast_buff.name  # Copy node
         ref.subscript = ast_buff.subscript
-        inds = (
-            name if i > IL - 1 else 0 for i, name in enumerate(ref_access_names)
-        )
-        tab_rw = ref_name + "".join(
-            reversed(list((f"[{index}]" for index in inds)))
-        )
+        inds = (name if i > IL - 1 else 0 for i, name in enumerate(ref_access_names))
+        tab_rw = ref_name + "".join(reversed(list((f"[{index}]" for index in inds))))
         print(f"substitute {(tab_rw)} # mapped @ {buffer_name}s")
         # print(ast_to_c_highlight(ast_sub_for))
 
@@ -199,7 +195,7 @@ def dma_mapping_algo3(ast, ref, iref):
         stmts.append(stmt_c_to_ast(f'void * {adr_name} = {"&" + tab_rw};'))
         stmts.append(
             stmt_c_to_ast(
-                f"int {size_name} = MIN({dma_transfer_size}, ({loops_access_l[IL]}-{loops_access_names[IL]})*{nb_repeat_int}*{loops_access_l_cum[IL-1]});"
+                f"int {size_name} = MIN({dma_transfer_size}, ({loops_access_l[IL]}-{loops_access_names[IL]})*{loops_access_l_cum[IL-1]});"
             )
         )
         if ref_is_read:
@@ -212,12 +208,7 @@ def dma_mapping_algo3(ast, ref, iref):
                         expr_c_to_ast(
                             f"{loops_access_names[IL]} < {loops_access_l[IL]}"
                         ),
-                        c_ast.Compound(
-                            [
-                                ast_sub_for,
-                                expr_c_to_ast(f"{loops_access_names[IL]}++"),
-                            ]
-                        ),
+                        c_ast.Compound([ast_sub_for]),
                         None,
                     )
                 ]
@@ -225,7 +216,7 @@ def dma_mapping_algo3(ast, ref, iref):
         else:
             body = ast_sub_for
 
-        body.block_items.append(stmt_c_to_ast(f'{loops_access_names[IL]}++;'))
+        body.block_items.append(stmt_c_to_ast(f"{loops_access_names[IL]}++;"))
         stmts.append(
             c_ast.For(
                 expr_c_to_ast(f"int {iter_name} = {0}"),

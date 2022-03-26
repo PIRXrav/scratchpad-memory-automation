@@ -26,7 +26,7 @@ def shell(cmd):
 
 def test_kernel(do_mem_mapping=True):
     # Generate C code    
-    kernel = Kernel('gemv', {'N': 42, 'M': 64})
+    kernel = Kernel('gemv', {'N': 42, 'M': 31})
     kernel.process(do_mem_mapping=do_mem_mapping)
 
     hname, hcode = kernel.generate_header()

@@ -100,10 +100,7 @@ class Kernel:
             if decl.__class__ != c_ast.Decl:
                 raise Exception(f"Malformed file: {decl} is not of type Decl")
 
-        for ksec in KERNEL_CODE_SEC:
-            print(ksec + ": ")
-            print(c_highlight(ast_to_c(self.sectionsast[ksec])))
-      
+
 
     def get_config(self):
         """Return current kernel configurarion

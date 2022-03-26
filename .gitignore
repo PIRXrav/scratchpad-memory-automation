@@ -8,3 +8,5 @@ __pycache__/
 *.out
 
 res.c
+
+*.log

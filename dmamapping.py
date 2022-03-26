@@ -29,9 +29,15 @@ import numpy as np
 import asttools as at
 from asttools import stmt_c_to_ast, expr_c_to_ast
 
-DMA_SIZE = 129
 from math import ceil, floor
 
+import logging
+
+log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
+
+
+DMA_SIZE = 129
 
 class Gencode:
     @classmethod
@@ -48,13 +54,13 @@ import sys
 
 def do_memory_mapping(ast):
     for topfor in at.c_ast_get_all_topfor(ast):
-        print("TOP FORS:")
-        print(at.ast_to_c_highlight(topfor))
+        log.debug("TOP FORS:")
+        # print(at.ast_to_c_highlight(topfor))
         refs = at.c_ast_get_all_top_ref(topfor)
         nb_refs = len(refs)
-        print(f"TOP REFS ({nb_refs}):")
+        log.debug(f"TOP REFS ({nb_refs}):")
         for i, ref in enumerate((refs)):
-            print(f"{at.ast_to_c(ref):20} RW={at.c_ast_ref_is_rw(ast, ref)}")
+            log.debug(f"{at.ast_to_c(ref):20} RW={at.c_ast_ref_is_rw(ast, ref)}")
             dma_mapping_algo3(ast, ref, i)
 
 
@@ -78,18 +84,16 @@ def dma_mapping_algo3(ast, ref, iref):
     ]
     loops_ref_access_l_cum = list(np.cumprod(loops_ref_access_l))
 
-    print("for_nodes=", list(map(type, for_nodes)))
-    print(f"{loops_access_names=}")
-    print(f"{loops_access_l=}")
-    print(f"{loops_access_l_cum=}")
-
-    print(f"{ref_name=}")
-    print(f"{ref_access_names=}")
-    print(f"{loops_ref_access_l=}")
-    print(f"{loops_ref_access_l_cum=}")
-
-    print(f"{ref_is_read=}")
-    print(f"{ref_is_write=}")
+    log.debug(f"for_nodes={list(map(type, for_nodes))}")
+    log.debug(f"{loops_access_names=}")
+    log.debug(f"{loops_access_l=}")
+    log.debug(f"{loops_access_l_cum=}")
+    log.debug(f"{ref_name=}")
+    log.debug(f"{ref_access_names=}")
+    log.debug(f"{loops_ref_access_l=}")
+    log.debug(f"{loops_ref_access_l_cum=}")
+    log.debug(f"{ref_is_read=}")
+    log.debug(f"{ref_is_write=}")
 
     # Not a cube
     if ref_access_names != loops_access_names:
@@ -121,7 +125,7 @@ def dma_mapping_algo3(ast, ref, iref):
         while DMA_SIZE > loops_ref_access_l_cum[IL]:
             IL += 1
 
-    print(f"{IL=}")
+    log.debug(f"{IL=}")
 
     buffer_name = f"__SMA__dma{iref}"
     adr_name = f"__SMA__adr{iref}"
@@ -133,7 +137,7 @@ def dma_mapping_algo3(ast, ref, iref):
         # Compute memory mapping
         inds = (0 for i, name in enumerate(ref_access_names))
         tab_rw = ref_name + "".join(reversed(list((f"[{index}]" for index in inds))))
-        print(f"substitute {(tab_rw)} # mapped @ {buffer_name}s")
+        log.debug(f"substitute {(tab_rw)} # mapped @ {buffer_name}s")
         # Insert transactions
         top_for = for_nodes[-1]
         content = at.c_ast_get_upper_node(ast, top_for).block_items
@@ -160,8 +164,8 @@ def dma_mapping_algo3(ast, ref, iref):
         dma_transfer_size = nb_repeat_int * loops_access_l_cum[IL - 1]
         nb_residual_int = loops_access_l[IL - 1] % nb_repeat_int
         dma_efficiency = dma_transfer_size / DMA_SIZE
-        print(f"{nb_repeat=}, {nb_repeat_int=}, {nb_residual_int=}")
-        print(f"{dma_transfer_size=}/{DMA_SIZE=} = {dma_transfer_size/DMA_SIZE}")
+        log.debug(f"{nb_repeat=}, {nb_repeat_int=}, {nb_residual_int=}")
+        log.debug(f"{dma_transfer_size=}/{DMA_SIZE=} = {dma_transfer_size/DMA_SIZE}")
 
         # Find the for @ IL
         inner_top_for = for_nodes[IL]
@@ -188,7 +192,7 @@ def dma_mapping_algo3(ast, ref, iref):
         ref.subscript = ast_buff.subscript
         inds = (name if i > IL - 1 else 0 for i, name in enumerate(ref_access_names))
         tab_rw = ref_name + "".join(reversed(list((f"[{index}]" for index in inds))))
-        print(f"substitute {(tab_rw)} # mapped @ {buffer_name}s")
+        log.debug(f"substitute {(tab_rw)} # mapped @ {buffer_name}s")
         # print(ast_to_c_highlight(ast_sub_for))
 
         stmts = []

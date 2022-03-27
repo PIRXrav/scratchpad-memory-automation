@@ -114,7 +114,8 @@ BIG_BENCHMARK = {"gemv": [{'M': m, 'N': n} for m, n in [(2, 2),
                                                         (2, 34),
                                                         (12, 4),
                                                         (111, 111),
-                                                        (16, 128)]]}
+                                                        (16, 128),
+                                                        (16, 1234)]]}
 
 def gen_bench(bench):
     for name, configs in BIG_BENCHMARK.items():
@@ -128,7 +129,7 @@ bench = (annotated(k, v) for k, v in gen_bench(BIG_BENCHMARK))
 @ddt
 class TestKernels(unittest.TestCase):
     def test_small_config(self):
-        self.assertFalse(validation_kernel("gemv", {'M': 16, 'N': 129}))
+        self.assertFalse(validation_kernel("gemv", {'M': 16, 'N': 129*3+10}))
     
     def test_copy(self):
         self.assertFalse(validation_kernel("copy", {'M': 2, 'N': 4}))

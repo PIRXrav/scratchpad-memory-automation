@@ -77,9 +77,11 @@ def dma_mapping_algo3(ast, ref, iref):
         ref_is_write,
     ) = at.c_ast_ref_analyse(ast, ref)
 
-    # if 'input' in ref_name:
-    #     return
-
+    if 'input' in ref_name:
+        return
+    if 'weights' in ref_name:
+        return
+    
     # Remove __SMA__
     # for i, name in reversed(list(enumerate(loops_access_names))):
     #     if "__SMA__" in name:    
@@ -156,11 +158,12 @@ def dma_mapping_algo3(ast, ref, iref):
     else: # Repeat
         pass 
 
+    current_name  = for_nodes[IL].init.decls[0].name
 
     buffer_name = f"__SMA__dma{iref}"
-    adr_name = f"__SMA__adr{iref}"
-    size_name = f"__SMA__size{iref}"
-    iter_name = f"__SMA__i{iref}"
+    adr_name = f"__SMA__{current_name}_adr{iref}"
+    size_name = f"__SMA__{current_name}_size{iref}"
+    iter_name = f"__SMA__{current_name}_i{iref}"
     cgen_dma_args = (adr_name, buffer_name, size_name)
 
 
@@ -253,10 +256,15 @@ def dma_mapping_algo3(ast, ref, iref):
         
         tab_rw = ref_name + "".join(reversed(list((f"[{index}]" for index in inds))))
         log.debug(f"substitute {(tab_rw)} # mapped @ {buffer_name}s")
+        body_repeat = DMA_SIZE if IR == 0 else nb_repeat_int
 
             
         stmts = []
-        stmts.append(stmt_c_to_ast(f'void * {adr_name} = {"&" + tab_rw};'))
+        stmts.append(stmt_c_to_ast(f"static int {iter_name};"))
+        stmts.append(stmt_c_to_ast(f"static int {size_name};"))
+        stmts.append(stmt_c_to_ast(f'static void * {adr_name};'))
+
+        
         if IR == 0: # Divise
             if nb_residual_int:
                 size = f"MIN({dma_transfer_size}, ({loops_access_l[IL]}-{loops_access_names[IL]}))"
@@ -265,42 +273,18 @@ def dma_mapping_algo3(ast, ref, iref):
         else: # Repeat
             size = f"MIN({dma_transfer_size}, ({loops_access_l[IL]}-{loops_access_names[IL]})*{loops_ref_access_l_cum[IL-1]})"
 
-        stmts.append(stmt_c_to_ast(f"int {size_name} = {size};"))
 
+        stmts.append(stmt_c_to_ast(f"if ({current_name} % {body_repeat} == 0) {{{iter_name} = 0; {size_name} = {size}; {adr_name} = {'&' + tab_rw};}}"))
         if ref_is_read:
-            stmts.append(stmt_c_to_ast(f"{Gencode.cgen_dma_ld(*cgen_dma_args)};"))
+            stmts.append(stmt_c_to_ast(f"if ({current_name} % {body_repeat} == 0) {{{Gencode.cgen_dma_ld(*cgen_dma_args)};}}"))
+        
+        for stmt in ast_sub_for.block_items:
+            stmts.append(stmt)
 
-        if nb_residual_int:
-            body = c_ast.Compound(
-                [
-                    c_ast.If(
-                        expr_c_to_ast(
-                            f"{loops_access_names[IL]} < {loops_access_l[IL]}"
-                        ),
-                        ast_sub_for,
-                        None,
-                    )
-                ]
-            )
-        else:
-            body = ast_sub_for
-
-        body_repeat = DMA_SIZE if IR == 0 else nb_repeat_int
-
-        # body.block_items.append(stmt_c_to_ast(f"if ({iter_name} < {body_repeat}-1) {{{loops_access_names[IL]}++;}}"))        
-        body.block_items.append(stmt_c_to_ast(f"{loops_access_names[IL]}++;"))
-        stmts.append(
-            c_ast.For(
-                c_ast.DeclList(decls=[expr_c_to_ast(f"int {iter_name} = {0}")]),
-                expr_c_to_ast(f"{iter_name} < {body_repeat}"),
-                expr_c_to_ast(f"{iter_name}++"),
-                body,
-            )
-        )
-        stmts.append(stmt_c_to_ast(f"{loops_access_names[IL]}--;"))  # TODO Beark
+        stmts.append(stmt_c_to_ast(f'{iter_name}++;'))
 
         if ref_is_write:
-            stmts.append(stmt_c_to_ast(f"{Gencode.cgen_dma_st(*cgen_dma_args)};"))
+            stmts.append(stmt_c_to_ast(f"if ({iter_name} == {size_name}) {{{Gencode.cgen_dma_st(*cgen_dma_args)};}}"))
 
 
         # print(ast_to_c_highlight(ast_intermediate))

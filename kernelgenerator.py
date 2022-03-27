@@ -46,6 +46,8 @@ def path_of_kernel(kernel_name):
 KERNEL_SEC = ('DEF', 'ARG', 'FUN')
 KERNEL_CODE_SEC = ('ARG', 'FUN')
 
+def kernel_compute_name(name, config):
+    return name + ''.join(map(lambda c: '_' + ''.join(map(str, c)), config.items()))
 
 class Kernel:
     def __init__(self, kernel_name, user_config):
@@ -123,7 +125,7 @@ class Kernel:
             self.fun_arg_list.append(expr_c_to_ast(f'void *{arg_name}'))
         
         # Update function name
-        fun_name = fun_get_name(self.fun) + ''.join(map(lambda c: '_' + ''.join(map(str, c)), self.config.items()))
+        fun_name = kernel_compute_name(fun_get_name(self.fun), self.config)
         fun_set_name(self.fun, fun_name)
 
         return self

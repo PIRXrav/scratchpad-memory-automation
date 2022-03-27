@@ -3,11 +3,11 @@ import logging as log
 import logging
 from colorlog import ColoredFormatter
 
-LOG_LEVEL = logging.INFO
+LOG_LEVEL = logging.WARNING
 LOGFORMAT = "  %(log_color)s%(levelname)-8s%(reset)s | %(log_color)s%(message)s%(reset)s"
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=LOG_LEVEL,
     format="%(levelname)-8s %(filename)-16s:%(lineno)-4d>> %(message)s",
     handlers=[
         logging.StreamHandler()
@@ -17,10 +17,12 @@ logging.basicConfig(
 log = logging.getLogger()
 from isort import file
 import subprocess
-from kernelgenerator import Kernel
+from kernelgenerator import Kernel, kernel_compute_name
 import filecmp
 from asttools import c_highlight
 import sys
+import unittest
+from ddt import ddt, data
 
 PREFIX = "/tmp/"
 SMA_SOURCE = PREFIX + "sma_source.c"
@@ -50,7 +52,8 @@ def test_kernel(kernel_name, config, do_mem_mapping=True):
     kernel.process(do_mem_mapping=do_mem_mapping)
 
     hname, hcode = kernel.generate_header()
-    # print(c_highlight(hcode))
+    if do_mem_mapping:
+        log.debug(c_highlight(hcode))
     cname, ccode = kernel.generate_benchmark()
     # print(c_highlight(ccode))
     gdbname, gdbcode, dumpfiles = kernel.generate_benchmark_gdb(
@@ -90,6 +93,18 @@ def validation_kernel(kernel_name, config):
     return total_diff
 
 
+
+class WrapList(list):
+    pass
+
+def annotated(name, config):
+    r = WrapList([name, config])
+    setattr(r, "__name__", kernel_compute_name(name, config))
+    return r
+
+
+
+
 BIG_BENCHMARK = {"gemv": [{'M': m, 'N': n} for m, n in [(2, 2),
                                                         (2, 64),
                                                         (64, 2),
@@ -101,23 +116,27 @@ BIG_BENCHMARK = {"gemv": [{'M': m, 'N': n} for m, n in [(2, 2),
                                                         (111, 111),
                                                         (16, 128)]]}
 
-def big_benchmark():
+def gen_bench(bench):
     for name, configs in BIG_BENCHMARK.items():
-        log.info(f'Benchmark : {name} # {len(configs)}')
         for config in configs:
-            res = validation_kernel(name, config)
-            if res:
-                raise Exception("Result differ")
-            else:
-                log.info('Test passed')
-    
+            yield name, config
 
-if __name__ == "__main__":
-    big_benchmark()
-    res = validation_kernel("gemv", {'M': 16, 'N': 64})
-    if res:
-        raise Exception("Result differ")
-    else:
-        log.info('Test passed')
+bench = (annotated(k, v) for k, v in gen_bench(BIG_BENCHMARK))
 
-    exit(res)
+
+
+@ddt
+class TestKernels(unittest.TestCase):
+    def test_small_config(self):
+        self.assertFalse(validation_kernel("gemv", {'M': 16, 'N': 129*2}))
+
+    @data(*tuple(bench))
+    def test_all(self, args):
+        self.assertFalse(validation_kernel(*args))
+
+
+
+suite = unittest.TestLoader().loadTestsFromTestCase(TestKernels)
+
+if __name__ == '__main__':
+    unittest.TextTestRunner(verbosity=2).run(suite)

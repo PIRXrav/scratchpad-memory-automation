@@ -128,7 +128,10 @@ bench = (annotated(k, v) for k, v in gen_bench(BIG_BENCHMARK))
 @ddt
 class TestKernels(unittest.TestCase):
     def test_small_config(self):
-        self.assertFalse(validation_kernel("gemv", {'M': 16, 'N': 129*2}))
+        self.assertFalse(validation_kernel("gemv", {'M': 16, 'N': 129}))
+    
+    def test_copy(self):
+        self.assertFalse(validation_kernel("copy", {'M': 2, 'N': 4}))
 
     @data(*tuple(bench))
     def test_all(self, args):

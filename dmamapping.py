@@ -77,10 +77,10 @@ def dma_mapping_algo3(ast, ref, iref):
         ref_is_write,
     ) = at.c_ast_ref_analyse(ast, ref)
 
-    if 'input' in ref_name:
-        return
-    if 'weights' in ref_name:
-        return
+    # if 'input' in ref_name:
+    #     return
+    # if 'weights' in ref_name:
+    #     return
     
     # Remove __SMA__
     # for i, name in reversed(list(enumerate(loops_access_names))):
@@ -170,7 +170,8 @@ def dma_mapping_algo3(ast, ref, iref):
     if IL == -1:
         topcomp = at.c_ast_get_upper_node(ast, for_nodes[-1])
     elif IL == 0:
-        raise Exception('Unimplemented')
+        topcomp = for_nodes[IL].stmt
+        # raise Exception('Unimplemented')
     else:
         topcomp = for_nodes[IL].stmt
     
@@ -284,7 +285,7 @@ def dma_mapping_algo3(ast, ref, iref):
         stmts.append(stmt_c_to_ast(f'{iter_name}++;'))
 
         if ref_is_write:
-            stmts.append(stmt_c_to_ast(f"if ({iter_name} == {size_name}) {{{Gencode.cgen_dma_st(*cgen_dma_args)};}}"))
+            stmts.append(stmt_c_to_ast(f"if ({current_name} % {body_repeat} == {body_repeat}-1 || {current_name} == {loops_access_l[IL]}-1) {{{Gencode.cgen_dma_st(*cgen_dma_args)};}}"))
 
 
         # print(ast_to_c_highlight(ast_intermediate))

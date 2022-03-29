@@ -3,7 +3,11 @@ import logging as log
 import logging
 from colorlog import ColoredFormatter
 
-LOG_LEVEL = logging.WARNING
+if __name__ == '__main__':
+    LOG_LEVEL = logging.DEBUG
+else:
+    LOG_LEVEL = logging.WARNING
+
 LOGFORMAT = "  %(log_color)s%(levelname)-8s%(reset)s | %(log_color)s%(message)s%(reset)s"
 
 logging.basicConfig(
@@ -29,7 +33,7 @@ SMA_SOURCE = PREFIX + "sma_source.c"
 SMA_BIN = PREFIX + "sma_bin"
 
 CC = "gcc"
-CFLAGS = "-Wall -Wextra -Werror -Idmasimulator -g"
+CFLAGS = "-Wall -Wextra -Werror -Idmasimulator -g -O2"
 LDFLAGS = ""
 
 
@@ -102,20 +106,16 @@ def annotated(name, config):
     setattr(r, "__name__", kernel_compute_name(name, config))
     return r
 
+from itertools import product
+
+CONF_1D_04 = (2, 7, 8, 31, 32, 111, 1000, 1024)
+CONF_1D_CONF_11 = (2, 4, 8, 10, 20, 50, 256, 400, 1024, 2000, 2048)
+
+CONF_2D_04_04 =  product(CONF_1D_04, CONF_1D_04)
+M_N_BENCHMARK = [{'M': m, 'N': n} for m, n in CONF_2D_04_04]
 
 
-
-BIG_BENCHMARK = {"gemv": [{'M': m, 'N': n} for m, n in [(2, 2),
-                                                        (2, 64),
-                                                        (64, 2),
-                                                        (64, 64),
-                                                        (31, 13),
-                                                        (45, 12),
-                                                        (2, 34),
-                                                        (12, 4),
-                                                        (111, 111),
-                                                        (16, 128),
-                                                        (16, 1234)]]}
+BIG_BENCHMARK = {name: M_N_BENCHMARK for name in ("set1", "copy", "gemv")}
 
 def gen_bench(bench):
     for name, configs in BIG_BENCHMARK.items():
@@ -125,22 +125,13 @@ def gen_bench(bench):
 bench = (annotated(k, v) for k, v in gen_bench(BIG_BENCHMARK))
 
 
-
 @ddt
 class TestKernels(unittest.TestCase):
-    def test_small_config(self):
-        self.assertFalse(validation_kernel("gemv", {'M': 16, 'N': 129*3+10}))
-    
-    def test_copy(self):
-        self.assertFalse(validation_kernel("copy", {'M': 2, 'N': 4}))
-
     @data(*tuple(bench))
     def test_all(self, args):
         self.assertFalse(validation_kernel(*args))
 
 
 
-suite = unittest.TestLoader().loadTestsFromTestCase(TestKernels)
-
 if __name__ == '__main__':
-    unittest.TextTestRunner(verbosity=2).run(suite)
+    validation_kernel("gemv", {'M': 1024*16, 'N': 1024*16})

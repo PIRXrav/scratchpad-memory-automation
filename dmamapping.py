@@ -46,6 +46,10 @@ class Gencode:
     @classmethod
     def cgen_dma_st(self, adr, buff, size):
         return f"DMA_ST({adr}, {buff}, {size})"
+    
+    @classmethod
+    def cgen_static_mac(self, A, B):
+        return '+'.join(f'(({a}) * ({b}))' for a, b in zip(A, B))
 
 
 import sys
@@ -322,32 +326,21 @@ def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
     if IR == -1: # Array < DMA
         log.debug('--- WRAP MODE')
         # Compute memory mapping
-        inds = (0 for i, name in enumerate(ref_access_names))
-        tab_rw = ref_name + "".join(reversed(list((f"[{index}]" for index in inds))))
+        dma_transfer_size = loops_ref_access_l_cum[-1]
+        tab_rw = ref_name
         log.debug(f"substitute {(tab_rw)} # mapped @ {buffer_name}")
         # Insert transactions
-        topcomp.block_items.insert(
-            0, stmt_c_to_ast(f"int {size_name} = {loops_ref_access_l_cum[-1]};")
-        )
-        topcomp.block_items.insert(1, stmt_c_to_ast(f'void * {adr_name} = {"&" + tab_rw};'))
+        topcomp.block_items.insert(0, stmt_c_to_ast(f"int {size_name} = {dma_transfer_size};"))
+        topcomp.block_items.insert(1, stmt_c_to_ast(f'void * {adr_name} = {tab_rw};'))
         if ref_is_read:  # insert LD
             topcomp.block_items.insert(2, expr_c_to_ast(Gencode.cgen_dma_ld(*cgen_dma_args)))
         if ref_is_write:  # Insert ST
             topcomp.block_items.append(expr_c_to_ast(Gencode.cgen_dma_st(*cgen_dma_args)))
-        dma_efficiency = loops_ref_access_l_cum[-1] / DMA_SIZE
         # Update ref
-        buff_adr = "+".join(
-            f"{i}*{cumprod}"
-            for i, cumprod in zip(
-                ref_access_names,
-                chain((1,), ref_decl_l_cum[0:-1]),
-            )
-        )
+        buff_adr = Gencode.cgen_static_mac(ref_access_names, [1, *ref_decl_l_cum[0:-1]])
         ast_buff = expr_c_to_ast(f"{buffer_name}[{buff_adr}]")
-        ref.name = ast_buff.name  # Copy node
-        ref.subscript = ast_buff.subscript
-        ref.name.name = buffer_name  # Only to change name ID name
-
+        at.c_ast_ref_update(ref, ast_buff.name, ast_buff.subscript)
+        
     else:
         if IR == 0: # Divise
             nb_repeat = ref_decl_l[0] / DMA_SIZE
@@ -360,10 +353,8 @@ def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
             dma_transfer_size = nb_repeat_int * loops_ref_access_l_cum[IL - 1]
             nb_residual_int = (DMA_SIZE * nb_repeat_int - loops_ref_access_l_cum[IL - 1])
         
-        dma_efficiency = dma_transfer_size / DMA_SIZE
         log.debug('--- ' + ('DIVISE' if IR == 0 else 'REPEAT') + ' MODE')
         log.debug(f"{nb_repeat=}, {nb_repeat_int=}, {nb_residual_int=}")
-        log.debug(f"{dma_transfer_size=}/{DMA_SIZE=} = {dma_transfer_size/DMA_SIZE}")
 
         # Find the for @ IL
         
@@ -377,25 +368,14 @@ def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
         if IR == 0: # Divise
             buff_adr = iter_name
         else: # Repeat
-            buff_adr = "+".join(
-                chain(
-                    (
-                        f"{i}*{cumprod}"
-                        for i, cumprod in zip(
-                            ref_access_names[0:IR],
-                            chain((1,), ref_decl_l_cum),
-                        )
-                    ),
-                    (f"{iter_name}*{ref_decl_l_cum[IR-1]}",),
-                )
-            )
+            buff_adr = Gencode.cgen_static_mac([*ref_access_names[0:IR], iter_name],
+                                               [1, *ref_decl_l_cum[0:IR]])
+
         ast_buff = expr_c_to_ast(f"{buffer_name}[{buff_adr}]")
-        ref.name = ast_buff.name  # Copy node
-        ref.subscript = ast_buff.subscript
+        at.c_ast_ref_update(ref, ast_buff.name, ast_buff.subscript)
 
         if IR == 0: # Divise
             inds = (name if i >= IL - 1 else 0 for i, name in enumerate(ref_access_names))
-            # TODO
         else: # Repeat
             inds = (name if i > IL - 1 else 0 for i, name in enumerate(ref_access_names))
         
@@ -435,6 +415,8 @@ def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
         # print(ast_to_c_highlight(ast_intermediate))
         topcomp.block_items = stmts
     
+    dma_efficiency = dma_transfer_size / DMA_SIZE
+    log.debug(f"{dma_transfer_size=}/{DMA_SIZE=} = {dma_transfer_size/DMA_SIZE}")
     log.debug(at.ast_to_c_highlight(ast))
     return dma_efficiency
 

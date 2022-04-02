@@ -257,28 +257,6 @@ def c_ast_ref_get_l(ref):
     return rv.name, rv.res
 
 
-def c_ast_ref_analyse(ast, ref):
-    # Compute fathers list for nodes
-    for_nodes = c_ast_get_for_fathers(ast, ref)
-    # Comute L value for all for nodes
-    l_tree = list(map(c_ast_For_extract_l, for_nodes))
-    loops_access_l = [l[2] for l in l_tree]
-    loops_access_l_cum = list(np.cumprod(loops_access_l))
-    loops_access_names = [l[0] for l in l_tree]
-
-    ref_name, ref_access_l_ast = c_ast_ref_get_l(ref)
-    return (
-        for_nodes,
-        ref_name,
-        ref_access_l_ast,
-        loops_access_names,
-        loops_access_l,
-        loops_access_l_cum,
-        ref_is_read,
-        ref_is_write,
-    )
-
-
 def c_ast_get_all_topfor(ast):
     class AllTopForVisitor(c_ast.NodeVisitor):
         def __init__(self):
@@ -355,3 +333,7 @@ def fun_get_name(fun):
 def fun_set_name(fun, name):
     fun.decl.type.type.declname = name
     fun.decl.name = name
+
+def c_ast_ref_update(ref, name, subscript):
+    ref.name = name
+    ref.subscript = subscript

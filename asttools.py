@@ -151,6 +151,75 @@ def c_ast_get_upper_node(ast, node):
     return uppernode
 
 
+def c_ast_constant_to_int(node):
+    if node.type == 'int':
+        return int(node.value)
+    else:
+        raise Exception(f'Invalid node {node}')
+
+
+def c_ast_arraydecl_get_l(decl):
+    """
+    Analyse the arraydecl
+    """
+
+    class ArrayDeclVisitor(c_ast.NodeVisitor):
+        """
+        Decl(name='input',
+            quals=[
+                ],
+            align=[
+                ],
+            storage=[
+                    ],
+            funcspec=[
+                    ],
+            type=ArrayDecl(type=TypeDecl(declname='input',
+                                        quals=[
+                                                ],
+                                        align=None,
+                                        type=IdentifierType(names=['char'
+                                                                    ]
+                                                            )
+                                        ),
+                            dim=Constant(type='int',
+                                        value='16'
+                                        ),
+                            dim_quals=[
+                                    ]
+                            ),
+            init=None,
+            bitsize=None
+            ))
+        """
+
+        def __init__(self):
+            self.dims = []
+            self.name = None
+            self.type = None
+
+        def generic_visit(self, node):
+            raise Exception("Did not visit a decl", node)
+
+        def visit_Decl(self, node):
+            self.name = node.name
+            self.visit(node.type)
+
+        def visit_ArrayDecl(self, node):
+            self.dims.append(node.dim)
+            self.visit(node.type)
+
+        def visit_TypeDecl(self, node):
+            assert self.name == node.declname
+            self.type = node.type
+
+    v = ArrayDeclVisitor()
+    v.visit(decl)
+    assert v.name != None
+    assert v.type != None
+    return v.name, v.type, v.dims
+
+
 def c_ast_ref_get_l(ref):
     """
     Analyse the reference
@@ -177,7 +246,7 @@ def c_ast_ref_get_l(ref):
             raise Exception("Did not visit a ref", node)
 
         def visit_ArrayRef(self, node):
-            self.res.append(node.subscript.name)  # TODO i+k ...
+            self.res.append(node.subscript)
             self.visit(node.name)
 
         def visit_ID(self, node):
@@ -197,12 +266,11 @@ def c_ast_ref_analyse(ast, ref):
     loops_access_l_cum = list(np.cumprod(loops_access_l))
     loops_access_names = [l[0] for l in l_tree]
 
-    ref_name, ref_access_names = c_ast_ref_get_l(ref)
-    ref_is_read, ref_is_write = c_ast_ref_is_rw(ast, ref)
+    ref_name, ref_access_l_ast = c_ast_ref_get_l(ref)
     return (
         for_nodes,
         ref_name,
-        ref_access_names,
+        ref_access_l_ast,
         loops_access_names,
         loops_access_l,
         loops_access_l_cum,

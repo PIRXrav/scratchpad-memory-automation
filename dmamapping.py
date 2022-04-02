@@ -51,85 +51,229 @@ class Gencode:
 import sys
 
 
-def do_memory_mapping(ast):
+def do_memory_mapping(ast, poly_decl_namespace):
+    log.debug(f"{poly_decl_namespace=}")
     for topfor in at.c_ast_get_all_topfor(ast):
-        log.debug("TOP FORS:")
-        # print(at.ast_to_c_highlight(topfor))
-        refs = at.c_ast_get_all_top_ref(topfor)
-        nb_refs = len(refs)
-        log.debug(f"TOP REFS ({nb_refs}):")
-        for i, ref in enumerate((refs)):
-            log.debug(f"{at.ast_to_c(ref):20} RW={at.c_ast_ref_is_rw(ast, ref)}")
-            dma_mapping_algo3(ast, ref, i)
+        do_memory_mapping_on_topfor(ast, topfor, poly_decl_namespace)
 
 
-def dma_mapping_algo3(ast, ref, iref):
+def do_memory_mapping_on_topfor(ast, topfor, poly_decl_namespace):
+    log.debug("TOP FORS:")
+    # print(at.ast_to_c_highlight(topfor))
+    refs = at.c_ast_get_all_top_ref(topfor)
+    nb_refs = len(refs)
+    log.debug(f"TOP REFS ({nb_refs}):")
+    for i, ref in enumerate((refs)):
+        log.debug(f"{at.ast_to_c(ref):20} RW={at.c_ast_ref_is_rw(ast, ref)}")
+        dma_mapping_algo3(ast, ref, i, poly_decl_namespace)
+
+from copy import copy
+import polyhedron as poly
+
+def c_ast_to_interval(ref, namespace, intervalbegin0=False):
+    """
+    Analyse the reference
+    """
+    class RefVisitor(c_ast.NodeVisitor):
+        """
+        ArrayRef(name=ArrayRef(name=ID(name='tab0'
+                                    ),
+                            subscript=ID(name='j'
+                                            )
+                            ),
+                subscript=ID(name='i'
+                            )
+        )
+        return ['tab0', 'j', 'i']
+        """
+
+        def __init__(self):
+            self.stack = []
+            self.depsid = set()
+
+        def generic_visit(self, node):
+            raise Exception("Unsupported OP: ", node)
+
+        def visit_ID(self, node):
+            if node.name in namespace:
+                interval = copy(namespace[node.name])
+                self.depsid.add(node.name)
+            else:
+                raise Exception(f"Unknown ID: {node}")
+            # print(f'Visit ID {node.name}: push({interval})')
+            self.stack.append(interval)
+
+        def visit_BinaryOp(self, node):
+            for n in node:
+                self.visit(n)
+            b = self.stack.pop()
+            a = self.stack.pop()
+            if node.op == '+':
+                interval = a + b
+            elif node.op == '-':
+                interval = a - b
+            else:
+                raise Exception(f"Invalid OP {node.op} in {node}")
+            # print(f'visit_BinaryOp : push({interval})')
+            self.stack.append(interval)
+
+            
+        def visit_Constant(self, node):
+            if node.type == 'int':
+                v = int(node.value)
+                interval = poly.Interval(0 if intervalbegin0 else v, v)
+            else:
+                raise Exception(f"Invalid type {node.type} in {node}")
+            # print(f'visit_Constant : push({interval})')
+            self.stack.append(interval)
+
+
+    rv = RefVisitor()
+    rv.visit(ref)
+    interval = rv.stack.pop()
+    if rv.stack != []:
+        raise Exception(f"Error during visit: {stack=}")
+    return interval, rv.depsid
+
+
+def c_ast_ref_to_interval(ref, namespace):
+    name, asts = at.c_ast_ref_get_l(ref)
+    poly_ref = []
+    for ast in asts:
+        interval, deps = c_ast_to_interval(ast, namespace)
+        poly_ref.append((interval, deps))
+
+    return name, asts, poly_ref
+
+
+def c_ast_arraydecl_to_intervals(decl):
+    name, type, asts = at.c_ast_arraydecl_get_l(decl)
+    poly_decl = []
+    for ast in asts:
+        # Evaluate decl access without namespace
+        interval, _ = c_ast_to_interval(ast, {}, intervalbegin0=True)
+        poly_decl.append(interval)
+
+    return name, asts, poly_decl 
+
+def c_ast_loop_to_interval_name(for_nodes):
+    # Comute L ast for all for nodes
+    poly_loop = []
+    for name, a, b in map(at.c_ast_For_extract_l, for_nodes):
+        poly_loop.append((poly.Interval(a, b), name))
+
+    return poly_loop
+
+def contain_ordered(listin, data):
+    if listin == []:
+        return True
+    if data == []:
+        return False
+    if listin[0] == data[0]:
+        return contain_ordered(listin[1:], data[1:])
+    else:
+        return contain_ordered(listin, data[1:])
+
+ # Fake it with poly
+def set_to_1(s): 
+    """Temporary function
+    """
+    v = list(s)
+    res = v.pop()
+    if v != []:
+        raise Exception("Invalid set:", s)
+    return res
+
+def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
     """ """
+    # Analyse Loops
+    for_nodes = at.c_ast_get_for_fathers(ast, ref)
+    poly_loop = c_ast_loop_to_interval_name(for_nodes)
+    poly_loop_namespace = {name: interval for interval, name in poly_loop}
+
     # Analyse reference
-    (
-        for_nodes,
-        ref_name,
-        ref_access_names,
-        loops_access_names,
-        loops_access_l,
-        loops_access_l_cum,
-        ref_is_read,
-        ref_is_write,
-    ) = at.c_ast_ref_analyse(ast, ref)
+    ref_is_read, ref_is_write = at.c_ast_ref_is_rw(ast, ref)
+    ref_name, ref_l_ast, poly_ref = c_ast_ref_to_interval(ref, namespace=poly_loop_namespace)
+
+    # Analyse reference declaration
+    poly_decl = poly_decl_namespace[ref_name]
+    poly_decl = list(reversed(poly_decl))
+    # Gencode vars
+    ref_access_names = [at.ast_to_c(ast) for ast in ref_l_ast]
+    loops_access_l = [interval.area() for interval, _ in poly_loop]
+    loops_access_names = [name for _, name in poly_loop]
+
+    # for (int n = 0; n < 1000; n++){ # Cost 
+    #     for (int i = 0; i < 100; i++){ # Cost 110
+    #         for(int j = 0; j < 10; j++{ # Cost 10
+    #             tab[n + i + i + 20] 
+    #         }
+    #     }
+    # }
+    # Loop   : i     -> out_name, Interval
+    # ref    : i     -> equation, in_names
+    # decl   : i     -> Interval
+
+    # Loop = <i->name, IPoly>
+    # Ref  = <names->IPoly>
+    
+    # Interval = [a, b]
+    # NPoly   : i    -> name, Interval
+    # IPoly   : i    -> Interval
+    # PrePoly : i    -> in_names, equation
+    # PrePoly.evaluate(namespace=NPoly) -> iPoly
+    # 
+    # IPoly.divise_by(DMA) -> #sub_poly, IR, ...
+    # 
+    
+    # Impossible variable :D. TODO delete
+    ###### BEGIN TODO SECTION
+    fake_names = [set_to_1(names) for i, names in poly_ref]
+    fake_loop_names = [name for _, name in poly_loop]
+    if not contain_ordered(fake_names, fake_loop_names):
+        raise Exception(f"Unimplemented")
+    fake_loops_l = [interval.area() if name in fake_names else 1 for interval, name in poly_loop]
+    # TODO une poly
+    loops_ref_access_l_cum = list(np.cumprod(fake_loops_l))
+    ###### END TODO SECTION
+
+    # TODO: not always true
+    ref_decl_l = [interval.area() for interval in poly_decl]
+    ref_decl_l_cum = list(np.cumprod(ref_decl_l))
+    
 
     # if 'input' in ref_name:
     #     return
     # if 'weights' in ref_name:
     #     return
-    
     # Remove __SMA__
     # for i, name in reversed(list(enumerate(loops_access_names))):
     #     if "__SMA__" in name:    
     #         loops_access_names.pop(i)
     #         loops_access_l.pop(i)
-
-    loops_ref_access_l = [
-        v if n in ref_access_names else 1
-        for n, v in zip(loops_access_names, loops_access_l)
-    ]
-    loops_ref_access_l_cum = list(np.cumprod(loops_ref_access_l))
-    ref_l = list(filter(lambda x: x!=1, loops_ref_access_l)) # TODO use def !
-    ref_l_cum = list(np.cumprod(ref_l))
-    loops_access_l_cum = None
+    
 
     log.debug(f'========== DMA MAPPING {at.ast_to_c(ref)}')
-    log.debug(f"{loops_access_names=}")
-    log.debug(f"{loops_access_l=}")
     log.debug(f"{ref_name=}")
-    log.debug(f"{ref_access_names=}")
-    log.debug(f"{ref_l=}")
-    log.debug(f"{ref_l_cum=}")
-    log.debug(f"{loops_ref_access_l=}")
-    log.debug(f"{loops_ref_access_l_cum=}")
     log.debug(f"{ref_is_read=}")
     log.debug(f"{ref_is_write=}")
+    log.debug(f"{ref_access_names=}")
+    log.debug(f"{poly_decl=}")
+    log.debug(f"  |->{ref_decl_l=}")
+    log.debug(f"  '->{ref_decl_l_cum=}")
+    log.debug(f"{poly_ref=}")
+    log.debug(f"  `->{loops_ref_access_l_cum=}")
 
-    # Not a cube
-    if ref_access_names != loops_access_names:
-        # is lower cube ?
-        def contain_ordered(listin, data):
-            if listin == []:
-                return True
-            if data == []:
-                return False
-            if listin[0] == data[0]:
-                return contain_ordered(listin[1:], data[1:])
-            else:
-                return contain_ordered(listin, data[1:])
+    log.debug(f"{poly_loop=}")
+    log.debug(f"  |->{loops_access_names=}")
+    log.debug(f"  `->{loops_access_l=}")
 
-        if not contain_ordered(ref_access_names, loops_access_names):
-            raise Exception(
-                f"Invalid memory mapping: {ref_access_names} != {loops_access_names} (TODO)"
-            )
-            # TODO: /!\ Lecture ne correspondant pas aux index direct exemple tab[i+1] !
-            # TODO Partitionnement mémoire. Exemple Toeplitz matrix.
-            # https://www.rle.mit.edu/eems/wp-content/uploads/2019/06/Tutorial-on-DNN-04-Kernel-Computations.pdf
-            # Slide 25
+
+
+    # TODO: Lecture ne correspondant pas aux index direct exemple tab[i+1] (wip)
+    # TODO: Partitionnement mémoire. Exemple Toeplitz matrix.
+    # https://www.rle.mit.edu/eems/wp-content/uploads/2019/06/Tutorial-on-DNN-04-Kernel-Computations.pdf
+    # Slide 25
 
     # Find where insert DMA LD/ST
     IL = 0
@@ -142,10 +286,10 @@ def dma_mapping_algo3(ast, ref, iref):
 
     # Find how to insert DMA LD/ST
     IR = 0
-    if DMA_SIZE >= ref_l_cum[-1]:  # We only need to do 1 transfert
+    if DMA_SIZE >= ref_decl_l_cum[-1]:  # We only need to do 1 transfert
         IR = -1
     else:
-        while DMA_SIZE > ref_l_cum[IR]:
+        while DMA_SIZE > ref_decl_l_cum[IR]:
             IR += 1
 
     log.debug(f"{IL=}")
@@ -169,11 +313,11 @@ def dma_mapping_algo3(ast, ref, iref):
 
     if IL == -1:
         topcomp = at.c_ast_get_upper_node(ast, for_nodes[-1])
-    elif IL == 0:
-        topcomp = for_nodes[IL].stmt
-        # raise Exception('Unimplemented')
     else:
         topcomp = for_nodes[IL].stmt
+
+    if not topcomp:
+        raise Exception(f"No {topcomp=} @ {IL=}")
     
     if IR == -1: # Array < DMA
         log.debug('--- WRAP MODE')
@@ -196,7 +340,7 @@ def dma_mapping_algo3(ast, ref, iref):
             f"{i}*{cumprod}"
             for i, cumprod in zip(
                 ref_access_names,
-                chain((1,), ref_l_cum[0:-1]),
+                chain((1,), ref_decl_l_cum[0:-1]),
             )
         )
         ast_buff = expr_c_to_ast(f"{buffer_name}[{buff_adr}]")
@@ -206,15 +350,15 @@ def dma_mapping_algo3(ast, ref, iref):
 
     else:
         if IR == 0: # Divise
-            nb_repeat = ref_l[0] / DMA_SIZE
+            nb_repeat = ref_decl_l[0] / DMA_SIZE
             nb_repeat_int = ceil(nb_repeat)
             dma_transfer_size = DMA_SIZE
-            nb_residual_int = ref_l[0] % DMA_SIZE
+            nb_residual_int = ref_decl_l[0] % DMA_SIZE
         else: # Repeat
             nb_repeat = DMA_SIZE / loops_ref_access_l_cum[IL - 1]
             nb_repeat_int = floor(nb_repeat)
             dma_transfer_size = nb_repeat_int * loops_ref_access_l_cum[IL - 1]
-            nb_residual_int = loops_access_l[IL - 1] % nb_repeat_int
+            nb_residual_int = (DMA_SIZE * nb_repeat_int - loops_ref_access_l_cum[IL - 1])
         
         dma_efficiency = dma_transfer_size / DMA_SIZE
         log.debug('--- ' + ('DIVISE' if IR == 0 else 'REPEAT') + ' MODE')
@@ -239,10 +383,10 @@ def dma_mapping_algo3(ast, ref, iref):
                         f"{i}*{cumprod}"
                         for i, cumprod in zip(
                             ref_access_names[0:IR],
-                            chain((1,), ref_l_cum),
+                            chain((1,), ref_decl_l_cum),
                         )
                     ),
-                    (f"{iter_name}*{ref_l_cum[IR-1]}",),
+                    (f"{iter_name}*{ref_decl_l_cum[IR-1]}",),
                 )
             )
         ast_buff = expr_c_to_ast(f"{buffer_name}[{buff_adr}]")

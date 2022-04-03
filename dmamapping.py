@@ -247,10 +247,12 @@ def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
 
     # if 'input' in ref_name:
     #    return
-    if 'weights' in ref_name:
-        return
-    if 'out' in ref_name:
-        return
+    # if 'weights' in ref_name:
+    #     print("-- no weights")
+    #     return
+    # if 'out' in ref_name:
+    #     print("-- no out")
+    #     return
 
     # Compute poly ref area
     from copy import deepcopy
@@ -472,14 +474,9 @@ def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
         at.c_ast_ref_update(ref, ast_buff.name, ast_buff.subscript)
 
         rn = loops_ref_access_l_ref_expr_ram[IL]
-        if IR == 0: # Divise
-            inds = (name if i >= (IR - 1) else 0 for i, name in enumerate(rn))
-        else: # Repeat
-            inds = (name if i > (IR - 1) else 0 for i, name in enumerate(rn))
-        
-        inds = rn
-        tab_rw = ref_name + "".join(reversed(list((f"[{index}]" for index in inds))))
+        tab_rw = ref_name + "".join(reversed(list((f"[{i}]" for i in rn))))
         log.debug(f"substitute {(tab_rw)} # mapped @ {buffer_name}s")
+        
         body_repeat = DMA_SIZE if IR == 0 else nb_repeat_int
 
             

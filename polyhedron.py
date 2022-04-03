@@ -13,14 +13,11 @@ class Interval:
         self.b = int(b)
     
     def __add__(self, interval):
-        self.a += interval.a
-        self.b += interval.b
-        return self
+        return Interval(self.a + interval.a, self.b + interval.b)
+
 
     def __sub__(self, interval):
-        self.a -= interval.a
-        self.b -= interval.b
-        return self
+        return Interval(self.a - interval.a, self.b - interval.b)
 
     def __truediv__(self, interval):
         return Interval(min(self.a / interval.a, self.a / interval.b),

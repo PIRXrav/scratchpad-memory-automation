@@ -73,16 +73,17 @@ def c_highlight(code):
     return highlight(code, CLexer(), TerminalFormatter(bg="dark", linenos=True))
 
 
-def c_ast_For_extract_l(node):
+def c_ast_for_get_l(node):
     """Return the for Bounds"""
     # /!\ Very restrictive
     try:
         var_loop_name = node.init.decls[0].name
-        assert node.init.decls[0].init.value == "0"
+        assert len(node.init.decls) == 1
         assert node.cond.op == "<"
         assert node.cond.left.name == var_loop_name
-        l = node.cond.right.value
-        return (var_loop_name, int("0"), int(l))
+        assert node.next.op == 'p++'
+        assert node.next.expr.name == var_loop_name
+        return (var_loop_name, node.init.decls[0].init, node.cond.right)
     except:
         print("Invalid for:")
         print(ast_to_c_highlight(node))

@@ -134,4 +134,4 @@ class TestKernels(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    validation_kernel("set1", {'N': 32, 'M': 33})
+    validation_kernel('conv2d', {'X': 16, 'Y': 16, 'DKX': 3, 'DKY': 3})

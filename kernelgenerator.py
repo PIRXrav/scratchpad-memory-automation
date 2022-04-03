@@ -219,7 +219,7 @@ class Kernel:
 
 
 if __name__ == '__main__':
-    kernel = Kernel('gemv', {'N': 42, 'M': 64})
+    kernel = Kernel('conv2d', {'X': 16, 'Y': 16, 'DKX': 3, 'DKY': 3})
     print(kernel)
     kernel.process()
 

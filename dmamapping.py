@@ -147,8 +147,10 @@ def c_ast_ref_to_interval(ref, namespace):
     poly_ref = []
     for ast in asts:
         interval, deps = c_ast_to_interval(ast, namespace)
+        # print(f"!!! INT({at.ast_to_c(ast)}) -> {interval} @ {namespace}")
         poly_ref.append((interval, deps))
 
+    # print("!!! ", name, poly_ref)
     return name, asts, poly_ref
 
 
@@ -165,7 +167,9 @@ def c_ast_arraydecl_to_intervals(decl):
 def c_ast_loop_to_interval_name(for_nodes):
     # Comute L ast for all for nodes
     poly_loop = []
-    for name, a, b in map(at.c_ast_For_extract_l, for_nodes):
+    for name, ast_a, ast_b in map(at.c_ast_for_get_l, for_nodes):
+        a = c_ast_to_interval(ast_a, {})[0].b
+        b = c_ast_to_interval(ast_b, {})[0].b
         poly_loop.append((poly.Interval(a, b), name))
 
     return poly_loop
@@ -190,8 +194,12 @@ def set_to_1(s):
         raise Exception("Invalid set:", s)
     return res
 
+import sympy
+
 def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
     """ """
+    log.debug(f'========== DMA MAPPING {at.ast_to_c(ref)}')
+
     # Analyse Loops
     for_nodes = at.c_ast_get_for_fathers(ast, ref)
     poly_loop = c_ast_loop_to_interval_name(for_nodes)
@@ -200,14 +208,13 @@ def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
     # Analyse reference
     ref_is_read, ref_is_write = at.c_ast_ref_is_rw(ast, ref)
     ref_name, ref_l_ast, poly_ref = c_ast_ref_to_interval(ref, namespace=poly_loop_namespace)
-    poly_ref_names = [names for _, names in poly_ref]
-    poly_ref_all_names = set(chain(*poly_ref_names))
+    poly_ref_deps = [names for _, names in poly_ref]
+    poly_ref_all_deps = set(chain(*poly_ref_deps))
     ref_access_names = [at.ast_to_c(ast) for ast in ref_l_ast]
 
     # Analyse reference declaration
     poly_decl = poly_decl_namespace[ref_name]
     poly_decl = list(reversed(poly_decl))
-    # TODO: not always true
     ref_decl_l = [interval.area() for interval in poly_decl]
     ref_decl_l_cum = list(np.cumprod(ref_decl_l))
     
@@ -238,6 +245,12 @@ def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
     # IPoly.divise_by(DMA) -> #sub_poly, IR, ...
     # 
 
+    # if 'input' in ref_name:
+    #    return
+    if 'weights' in ref_name:
+        return
+    if 'out' in ref_name:
+        return
 
     # Compute poly ref area
     from copy import deepcopy
@@ -246,33 +259,59 @@ def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
     for name in ("", * reversed(loops_access_names[1:])):
         # Compute poly with cuts
         poly_loop_namespace_sparse[name] = poly.Interval(0, 0)
-        _, _, poly_ref = c_ast_ref_to_interval(ref, namespace=poly_loop_namespace_sparse)
+        _, _, pr = c_ast_ref_to_interval(ref, namespace=poly_loop_namespace_sparse)
         # Compute poly area
         area = 1
-        for interval, deps in poly_ref:
+        for ir, (interval, deps) in enumerate(reversed(pr)):
             v = interval.area()
             if v:
                 area *= v
+                ir = len(ref_decl_l_cum) - ir -1
+                if ir != 0:
+                    area *= ref_decl_l_cum[ir-1]
+                break
+
         # Append area
-        loops_ref_access_l_cum.insert(0, area)
+        loops_ref_access_l_cum.insert(0, area) 
+    
+    loops_ref_access_l_ref_expr_dma = [[sympy.parsing.sympy_parser.parse_expr(s, evaluate=False) for s in (ref_access_names)]]
+    for name in reversed(loops_access_names):
+        # TODO use sympy
+        cur_exprs = deepcopy(loops_ref_access_l_ref_expr_dma[-1])
+        for i, _ in enumerate(cur_exprs):
+            cur_exprs[i] = cur_exprs[i].subs(name, 0)
+        loops_ref_access_l_ref_expr_dma.append(cur_exprs)
+    loops_ref_access_l_ref_expr_dma = list(reversed(loops_ref_access_l_ref_expr_dma))
 
+    loops_ref_access_l_ref_expr_ram = [[sympy.parsing.sympy_parser.parse_expr(s, evaluate=False) for s in (ref_access_names)]]
+    for name in loops_access_names:
+        cur_exprs = deepcopy(loops_ref_access_l_ref_expr_ram[-1])
+        for i, _ in enumerate(cur_exprs):
+            cur_exprs[i] = cur_exprs[i].subs(name, 0)
+        loops_ref_access_l_ref_expr_ram.append(cur_exprs)
+   
+    # loops_ref_access_l_ref_expr.pop(0) # Remove sentinel
 
-    log.debug(f'========== DMA MAPPING {at.ast_to_c(ref)}')
+    
     log.debug(f"{ref_name=}")
     log.debug(f"{ref_is_read=}")
     log.debug(f"{ref_is_write=}")
-    log.debug(f"{ref_access_names=}")
     log.debug(f"{poly_decl=}")
     log.debug(f"  |->{ref_decl_l=}")
     log.debug(f"  '->{ref_decl_l_cum=}")
-    log.debug(f"{poly_ref=}")
-    log.debug(f"  |->{poly_ref_names=}")
-    log.debug(f"  |->{poly_ref_all_names=}")
     log.debug(f"{poly_loop=}")
     log.debug(f"  |->{loops_access_names=}")
-    log.debug(f"  `->{loops_access_l=}")
+    log.debug(f"  |->{loops_access_l=}")
+    log.debug(f"  `->{poly_loop_namespace=}")
+    log.debug(f"{poly_ref=}")
+    log.debug(f"  |->{ref_access_names=}")
+    log.debug(f"  |->{poly_ref_deps=}")
+    log.debug(f"  |->{poly_ref_all_deps=}")
     log.debug(f"LOOP X REF")
     log.debug(f"  `->{loops_ref_access_l_cum=}")
+    log.debug(f"  `->{loops_ref_access_l_ref_expr_dma=}")
+    log.debug(f"  `->{loops_ref_access_l_ref_expr_ram=}")
+
 
     # Find where insert DMA LD/ST
     IL = 0
@@ -340,10 +379,6 @@ def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
 
 
 
-    # if 'input' in ref_name:
-    #     return
-    # if 'weights' in ref_name:
-    #     return
     # Remove __SMA__
     # for i, name in reversed(list(enumerate(loops_access_names))):
     #     if "__SMA__" in name:    
@@ -425,21 +460,24 @@ def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
         # print(ast_to_c_highlight(ast_sub_for))
 
         # replace tab <-> BUFF
+        # ref_access_names = loops_ref_access_l_ref_expr[IL - 1] # Get valid names
         # TODO outdated (/!\ smaller cube)
         if IR == 0: # Divise
             buff_adr = iter_name
         else: # Repeat
-            buff_adr = Gencode.cgen_static_mac([*ref_access_names[0:IR], iter_name],
-                                               [1, *ref_decl_l_cum[0:IR]])
+            buff_adr = Gencode.cgen_static_mac(loops_ref_access_l_ref_expr_dma[IL], [1, *ref_decl_l_cum[0:IR]]) + f'+ {iter_name}*{ref_decl_l_cum[IR-1]}'
+                                               
 
         ast_buff = expr_c_to_ast(f"{buffer_name}[{buff_adr}]")
         at.c_ast_ref_update(ref, ast_buff.name, ast_buff.subscript)
 
+        rn = loops_ref_access_l_ref_expr_ram[IL]
         if IR == 0: # Divise
-            inds = (name if i >= IL - 1 else 0 for i, name in enumerate(ref_access_names))
+            inds = (name if i >= (IR - 1) else 0 for i, name in enumerate(rn))
         else: # Repeat
-            inds = (name if i > IL - 1 else 0 for i, name in enumerate(ref_access_names))
+            inds = (name if i > (IR - 1) else 0 for i, name in enumerate(rn))
         
+        inds = rn
         tab_rw = ref_name + "".join(reversed(list((f"[{index}]" for index in inds))))
         log.debug(f"substitute {(tab_rw)} # mapped @ {buffer_name}s")
         body_repeat = DMA_SIZE if IR == 0 else nb_repeat_int

@@ -131,6 +131,7 @@ class Kernel:
             self.fun.body.block_items.insert(0, ptr_decl)
             self.fun_arg_list.append(expr_c_to_ast(f'void *{arg_name}'))
         
+
         # Update function name
         fun_name = kernel_compute_name(fun_get_name(self.fun), self.config)
         fun_set_name(self.fun, fun_name)

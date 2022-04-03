@@ -7,12 +7,14 @@
 char input[N];
 char output[N];
 
-
+    
 //***SMA FUN
 
 
-void copy(){
+void test(){
     for (int n = 0; n < N; n++) {
-        output[n +1 -1] = input[n + 1 -1]; // /!\ Overflow
+        for(int k = 0; k < N; k++){
+            output[n/2 + k/2] += input[n];
+        }   
     }
 }

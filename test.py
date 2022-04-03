@@ -134,4 +134,4 @@ class TestKernels(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    validation_kernel("gemv", {'M': 2, 'N': 7})
+    validation_kernel("set1", {'N': 32, 'M': 33})

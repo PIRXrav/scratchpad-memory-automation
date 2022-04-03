@@ -116,6 +116,8 @@ def c_ast_to_interval(ref, namespace, intervalbegin0=False):
                 interval = a + b
             elif node.op == '-':
                 interval = a - b
+            elif node.op == '/':
+                interval = a / b
             else:
                 raise Exception(f"Invalid OP {node.op} in {node}")
             # print(f'visit_BinaryOp : push({interval})')
@@ -198,12 +200,18 @@ def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
     # Analyse reference
     ref_is_read, ref_is_write = at.c_ast_ref_is_rw(ast, ref)
     ref_name, ref_l_ast, poly_ref = c_ast_ref_to_interval(ref, namespace=poly_loop_namespace)
+    poly_ref_names = [names for _, names in poly_ref]
+    poly_ref_all_names = set(chain(*poly_ref_names))
+    ref_access_names = [at.ast_to_c(ast) for ast in ref_l_ast]
 
     # Analyse reference declaration
     poly_decl = poly_decl_namespace[ref_name]
     poly_decl = list(reversed(poly_decl))
+    # TODO: not always true
+    ref_decl_l = [interval.area() for interval in poly_decl]
+    ref_decl_l_cum = list(np.cumprod(ref_decl_l))
+    
     # Gencode vars
-    ref_access_names = [at.ast_to_c(ast) for ast in ref_l_ast]
     loops_access_l = [interval.area() for interval, _ in poly_loop]
     loops_access_names = [name for _, name in poly_loop]
 
@@ -229,33 +237,25 @@ def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
     # 
     # IPoly.divise_by(DMA) -> #sub_poly, IR, ...
     # 
-    
-    # Impossible variable :D. TODO delete
-    ###### BEGIN TODO SECTION
-    fake_names = [set_to_1(names) for i, names in poly_ref]
-    fake_loop_names = [name for _, name in poly_loop]
-    if not contain_ordered(fake_names, fake_loop_names):
-        raise Exception(f"Unimplemented")
-    fake_loops_l = [interval.area() if name in fake_names else 1 for interval, name in poly_loop]
-    # TODO une poly
-    loops_ref_access_l_cum = list(np.cumprod(fake_loops_l))
-    ###### END TODO SECTION
 
-    # TODO: not always true
-    ref_decl_l = [interval.area() for interval in poly_decl]
-    ref_decl_l_cum = list(np.cumprod(ref_decl_l))
-    
 
-    # if 'input' in ref_name:
-    #     return
-    # if 'weights' in ref_name:
-    #     return
-    # Remove __SMA__
-    # for i, name in reversed(list(enumerate(loops_access_names))):
-    #     if "__SMA__" in name:    
-    #         loops_access_names.pop(i)
-    #         loops_access_l.pop(i)
-    
+    # Compute poly ref area
+    from copy import deepcopy
+    poly_loop_namespace_sparse = deepcopy(poly_loop_namespace)
+    loops_ref_access_l_cum = []
+    for name in ("", * reversed(loops_access_names[1:])):
+        # Compute poly with cuts
+        poly_loop_namespace_sparse[name] = poly.Interval(0, 0)
+        _, _, poly_ref = c_ast_ref_to_interval(ref, namespace=poly_loop_namespace_sparse)
+        # Compute poly area
+        area = 1
+        for interval, deps in poly_ref:
+            v = interval.area()
+            if v:
+                area *= v
+        # Append area
+        loops_ref_access_l_cum.insert(0, area)
+
 
     log.debug(f'========== DMA MAPPING {at.ast_to_c(ref)}')
     log.debug(f"{ref_name=}")
@@ -266,18 +266,13 @@ def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
     log.debug(f"  |->{ref_decl_l=}")
     log.debug(f"  '->{ref_decl_l_cum=}")
     log.debug(f"{poly_ref=}")
-    log.debug(f"  `->{loops_ref_access_l_cum=}")
-
+    log.debug(f"  |->{poly_ref_names=}")
+    log.debug(f"  |->{poly_ref_all_names=}")
     log.debug(f"{poly_loop=}")
     log.debug(f"  |->{loops_access_names=}")
     log.debug(f"  `->{loops_access_l=}")
-
-
-
-    # TODO: Lecture ne correspondant pas aux index direct exemple tab[i+1] (wip)
-    # TODO: Partitionnement mémoire. Exemple Toeplitz matrix.
-    # https://www.rle.mit.edu/eems/wp-content/uploads/2019/06/Tutorial-on-DNN-04-Kernel-Computations.pdf
-    # Slide 25
+    log.debug(f"LOOP X REF")
+    log.debug(f"  `->{loops_ref_access_l_cum=}")
 
     # Find where insert DMA LD/ST
     IL = 0
@@ -298,6 +293,72 @@ def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
 
     log.debug(f"{IL=}")
     log.debug(f"{IR=}")
+
+    log.debug(f"  `->{loops_ref_access_l_cum[IL-1]=}")
+    log.debug(f"  `->{ref_access_names[0:IR]=}")
+
+    # intervals_with_one_cut : {[a1, b1] , ..., [an, bn]} -> 
+    # names_loop_intervals = CST
+    # f IN intervals_with_one_cut(names_loop_intervals)
+    # names_intervals = f(names_loop_intervals)
+    # indx_interval = EVALUATE(ref_acces, names_intervals)
+    # sizes     = CST
+    # cost = ARRAY_C_USAGE(indx_interval, sizes)
+    # cost < DMA
+    # ==> Maximise cost !
+
+    # ===> Algo: binary search (NO)
+
+
+    # poly_max = poly_loop # No cut
+    # poly_min = poly.Polyhedron(1, 1)
+
+    # INFINITY = DMA_SIZE + 1
+    # def loss_function(poly):
+    #     """The cost should be as close to DMA_SIZE as possible, but never higher
+    #     """
+    #     memory_cost_bytes = mem_cost(poly)
+    #     if memory_cost_bytes > DMA_SIZE:
+    #         return INFINITY
+    #     else:
+    #         return DMA_SIZE - memory_cost_bytes
+    
+
+
+    # while poly_max != poly_min:
+
+    #     poly_mean = poly.Polyhedron.mean(poly_max, poly_min)
+
+    #     loss_max  = loss_function(poly_max)
+    #     loss_mean = loss_function(poly_mean)
+    #     loss_min  = loss_function(poly_min)
+        
+    #     if loss_mean == INFINITY:
+    #         poly_max = poly_mean
+    #     else:
+    #         poly_min = poly_mean
+
+
+
+    # if 'input' in ref_name:
+    #     return
+    # if 'weights' in ref_name:
+    #     return
+    # Remove __SMA__
+    # for i, name in reversed(list(enumerate(loops_access_names))):
+    #     if "__SMA__" in name:    
+    #         loops_access_names.pop(i)
+    #         loops_access_l.pop(i)
+    
+
+
+
+
+    # TODO: Lecture ne correspondant pas aux index direct exemple tab[i+1] (wip)
+    # TODO: Partitionnement mémoire. Exemple Toeplitz matrix.
+    # https://www.rle.mit.edu/eems/wp-content/uploads/2019/06/Tutorial-on-DNN-04-Kernel-Computations.pdf
+    # Slide 25
+
 
     if IR == -1: # Array < DMA
         assert IR == IL

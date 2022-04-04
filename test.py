@@ -98,13 +98,6 @@ def validation_kernel(kernel_name, config):
 
 
 
-class WrapList(list):
-    pass
-
-def annotated(name, config):
-    r = WrapList([name, config])
-    setattr(r, "__name__", kernel_compute_name(name, config))
-    return r
 
 from itertools import product
 
@@ -117,21 +110,42 @@ M_N_BENCHMARK = [{'M': m, 'N': n} for m, n in CONF_2D_04_04]
 
 BIG_BENCHMARK = {name: M_N_BENCHMARK for name in ("set1", "copy", "gemv")}
 
+
+
+RNG_1D = (5, 8, 32, 64, 255, 256)
+CFG_X_Y_DKX_DKY = [{'X': x, 'Y': y, 'DKX': dkx, 'DKY': dky} for x, y, dkx, dky 
+                    in product(RNG_1D, RNG_1D, (1, 3), (3, 4))]
+
+
 def gen_bench(bench):
-    for name, configs in BIG_BENCHMARK.items():
+    for name, configs in bench.items():
         for config in configs:
             yield name, config
 
-bench = (annotated(k, v) for k, v in gen_bench(BIG_BENCHMARK))
+
+def ddt_bench(bench):
+    class WrapList(list):
+        pass
+
+    def annotated(kv):
+        r = WrapList([*kv])
+        setattr(r, "__name__", kernel_compute_name(*kv))
+        return r
+        
+    return tuple(map(annotated, bench))
 
 
 @ddt
 class TestKernels(unittest.TestCase):
-    @data(*tuple(bench))
+    @data(*ddt_bench(gen_bench(BIG_BENCHMARK)))
     def test_all(self, args):
         self.assertFalse(validation_kernel(*args))
 
+    # @data(*ddt_bench(gen_bench({"conv2d": CFG_X_Y_DKX_DKY})))
+    # def test_conv2d(self, args):
+    #     self.assertFalse(validation_kernel(*args))
 
 
 if __name__ == '__main__':
-    validation_kernel('conv2d', {'X': 16, 'Y': 16, 'DKX': 3, 'DKY': 3})
+    validation_kernel('conv2d', {'X': 5, 'Y': 32, 'DKX': 1, 'DKY': 3})
+    # X64_Y5_DKX1_DKY4

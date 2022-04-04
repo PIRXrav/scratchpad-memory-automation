@@ -24,7 +24,7 @@ class Interval:
                         max(self.b / interval.a, self.b / interval.b))
         
     def __str__(self):
-        return str([self.a, self.b])
+        return str(f"[{self.a}, {self.b}[")
 
     def __repr__(self):
         return self.__str__()

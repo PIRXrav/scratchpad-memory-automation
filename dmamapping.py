@@ -348,7 +348,7 @@ def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
     # cost < DMA
     # ==> Maximise cost !
 
-    # ===> Algo: binary search (NO)
+    # ===> (NO)
 
 
     # poly_max = poly_loop # No cut
@@ -425,6 +425,7 @@ def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
         log.debug('--- WRAP MODE')
         # Compute memory mapping
         dma_transfer_size = loops_ref_access_l_cum[-1]
+        dma_transfer_size_eff = dma_transfer_size
         tab_rw = ref_name
         log.debug(f"substitute {(tab_rw)} # mapped @ {buffer_name}")
         # Insert transactions
@@ -444,15 +445,75 @@ def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
             nb_repeat = ref_decl_l[0] / DMA_SIZE
             nb_repeat_int = ceil(nb_repeat)
             dma_transfer_size = DMA_SIZE
-            nb_residual_int = ref_decl_l[0] % DMA_SIZE
+            nb_repeat_residual = ref_decl_l[0] % DMA_SIZE
+            dma_transfer_size_eff = DMA_SIZE
         else: # Repeat
-            nb_repeat = DMA_SIZE / loops_ref_access_l_cum[IL - 1]
-            nb_repeat_int = floor(nb_repeat)
-            dma_transfer_size = nb_repeat_int * loops_ref_access_l_cum[IL - 1]
-            nb_residual_int = (DMA_SIZE * nb_repeat_int - loops_ref_access_l_cum[IL - 1])
-        
+            log.debug(f"we have to repeat {loops_access_l[IL]} time the loop '{loops_access_names[IL]}' of size {loops_ref_access_l_cum[IL - 1]}")
+            # Find the best division
+            # TODO: Algo: binary search for perfs
+
+            def namespace_reduction(poly_loop_namespace, names, div_name, div_blocks):
+                # Compute namespace
+                poly_loop_namespace_partionned = deepcopy(poly_loop_namespace)
+                for name in reversed(names[1:]):
+                    if name == div_name:
+                        poly_loop_namespace_partionned[name] = poly.Interval(0, div_blocks-1)
+                        break
+                    else:
+                        poly_loop_namespace_partionned[name] = poly.Interval(0, 0)
+                return poly_loop_namespace_partionned
+    
+            def compute_area(ref, poly_loop_namespace_partionned):
+                # Compute memory footprint for this namespace
+                _, _, pr = c_ast_ref_to_interval(ref, namespace=poly_loop_namespace_partionned)
+                # Compute poly area
+                area = 1
+                for ir, (interval, deps) in enumerate(reversed(pr)):
+                    v = interval.area()
+                    if v:
+                        area *= v
+                        ir = len(ref_decl_l_cum) - ir -1
+                        if ir != 0:
+                            area *= ref_decl_l_cum[ir-1]
+                        break
+                return area
+                
+
+            for nb_block in reversed(range(1, loops_access_l[IL]+1+1)):
+                poly_loop_namespace_partionned = namespace_reduction(
+                    poly_loop_namespace,
+                    loops_access_names, 
+                    loops_access_names[IL], 
+                    nb_block)
+                area = compute_area(ref, poly_loop_namespace_partionned)
+                # log.debug(f"{nb_block=} -> {area=}")
+                # Is area valid AND is multiplicity ok ? and nb_repeat_residual == 0
+                if area <= DMA_SIZE:
+                    break
+            
+            log.debug(f"BEST: {nb_block=} => {area=}")
+
+            # Number of repeat for this configuration
+            nb_repeat = nb_block
+            nb_repeat_int = nb_block
+            nb_repeat_residual = loops_access_l[IL] % nb_block
+            dma_transfer_size_eff = nb_repeat_int * loops_ref_access_l_cum[IL - 1]
+            dma_transfer_size = area
+
+            nb_repeat_block = floor(loops_access_l[IL] / nb_block)
+
+            poly_loop_namespace_residual = namespace_reduction(
+                poly_loop_namespace,
+                loops_access_names, 
+                loops_access_names[IL], 
+                nb_repeat_residual)
+            dma_transfer_size_residual = compute_area(ref, poly_loop_namespace_residual)
+
+            log.debug(f" ===> DMA OPS: {nb_repeat_int}->{dma_transfer_size} & {nb_repeat_residual}->{dma_transfer_size_residual}")
+            log.debug(f" ===> DMA OPS: {nb_repeat_block} x {dma_transfer_size} + {1} x {dma_transfer_size_residual}")
+            
         log.debug('--- ' + ('DIVISE' if IR == 0 else 'REPEAT') + ' MODE')
-        log.debug(f"{nb_repeat=}, {nb_repeat_int=}, {nb_residual_int=}")
+        log.debug(f"{nb_repeat=}, {nb_repeat_int=}, {nb_repeat_residual=}")
 
         # Find the for @ IL
         
@@ -487,12 +548,15 @@ def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
 
         
         if IR == 0: # Divise
-            if nb_residual_int:
+            if nb_repeat_residual:
                 size = f"MIN({dma_transfer_size}, ({loops_access_l[IL]}-{loops_access_names[IL]}))"
             else:
                 size = str(DMA_SIZE)
         else: # Repeat
-            size = f"MIN({dma_transfer_size}, ({loops_access_l[IL]}-{loops_access_names[IL]})*{loops_ref_access_l_cum[IL-1]})"
+            # TODO: prevent memory overflow: DONE
+
+            size = f"{loops_access_names[IL]} != {nb_repeat_block} * {nb_block} ? {dma_transfer_size} : {dma_transfer_size_residual}"
+            # size = f"MIN({dma_transfer_size}, ({loops_access_l[IL]}-{loops_access_names[IL]})*{loops_ref_access_l_cum[IL-1]})"
 
 
         stmts.append(stmt_c_to_ast(f"if ({current_name} % {body_repeat} == 0) {{{iter_name} = 0; {size_name} = {size}; {adr_name} = {'&' + tab_rw};}}"))
@@ -512,7 +576,15 @@ def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
         topcomp.block_items = stmts
     
     dma_efficiency = dma_transfer_size / DMA_SIZE
-    log.debug(f"{dma_transfer_size=}/{DMA_SIZE=} = {dma_transfer_size/DMA_SIZE}")
+    log.debug(f"             {DMA_SIZE=}")
+    log.debug(f"    {dma_transfer_size=}")
+    log.debug(f"{dma_transfer_size_eff=}")
+    efficiency = dma_transfer_size_eff/dma_transfer_size
+    log.debug(f" ------>      DMA USAGE = {dma_transfer_size/DMA_SIZE*100}%")
+    log.debug(f" ------> DMA EFFICIENCY = {efficiency*100}%")
+    EFF_THRESHOLD = 0.1
+    if (efficiency < EFF_THRESHOLD): # less than 1 ochet used for 10 loaded from memory
+        log.warning(f"!!! {efficiency=} < {EFF_THRESHOLD} !!! You must do coalescing")
     log.debug(at.ast_to_c_highlight(ast))
     return dma_efficiency
 

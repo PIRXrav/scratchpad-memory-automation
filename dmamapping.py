@@ -457,7 +457,7 @@ def dma_mapping_algo3(ast, ref, iref, poly_decl_namespace):
                 poly_loop_namespace_partionned = deepcopy(poly_loop_namespace)
                 for name in reversed(names[1:]):
                     if name == div_name:
-                        poly_loop_namespace_partionned[name] = poly.Interval(0, div_blocks-1)
+                        poly_loop_namespace_partionned[name] = poly.Interval(0, div_blocks)
                         break
                     else:
                         poly_loop_namespace_partionned[name] = poly.Interval(0, 0)

@@ -137,15 +137,16 @@ def ddt_bench(bench):
 
 @ddt
 class TestKernels(unittest.TestCase):
-    @data(*ddt_bench(gen_bench(BIG_BENCHMARK)))
-    def test_all(self, args):
-        self.assertFalse(validation_kernel(*args))
-
-    # @data(*ddt_bench(gen_bench({"conv2d": CFG_X_Y_DKX_DKY})))
-    # def test_conv2d(self, args):
+    # @data(*ddt_bench(gen_bench(BIG_BENCHMARK)))
+    # def test_all(self, args):
     #     self.assertFalse(validation_kernel(*args))
+
+    @data(*ddt_bench(gen_bench({"conv2d": CFG_X_Y_DKX_DKY})))
+    def test_conv2d(self, args):
+        self.assertFalse(validation_kernel(*args))
 
 
 if __name__ == '__main__':
-    validation_kernel('conv2d', {'X': 5, 'Y': 32, 'DKX': 1, 'DKY': 3})
+    # validation_kernel('conv2d', {'X': 5, 'Y': 32, 'DKX': 1, 'DKY': 3})
+    validation_kernel('set1', {'M': 2, 'N': 111})
     # X64_Y5_DKX1_DKY4

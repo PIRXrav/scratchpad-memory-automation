@@ -13,8 +13,14 @@ class Interval:
         self.b = int(b)
     
     def __add__(self, interval):
-        return Interval(self.a + interval.a, self.b + interval.b)
-
+        """
+        [0, 5[ + [0, 0[ = [0, 5]
+        [0, 5[ + [0, 1[ = [0, 5[
+        [0, 5[ + [10, 10[ = [10, 15[
+        **The Devil is in the Details**
+        """
+        i = Interval(self.a + interval.a, self.b + interval.b - (interval.area() != 0 and self.area() != 0))
+        return i
 
     def __sub__(self, interval):
         return Interval(self.a - interval.a, self.b - interval.b)

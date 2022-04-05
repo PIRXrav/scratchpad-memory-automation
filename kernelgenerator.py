@@ -10,7 +10,7 @@ from asttools import delc_to_ptr_decl
 
 from asttools import fun_get_name, fun_set_name
 
-from dmamapping import do_memory_mapping, c_ast_arraydecl_to_intervals
+from dmamapping import do_memory_mapping, c_ast_arraydecl_to_l
 
 from pycparser import c_ast
 
@@ -115,12 +115,12 @@ class Kernel:
         # Memory mapping
         if do_mem_mapping:
             # Compute memory size
-            poly_decl_namespace = {}
+            decl_l_namespace = {}
             for decl in self.decls:
-                name, _, poly_decl = c_ast_arraydecl_to_intervals(decl)
-                poly_decl_namespace[name] = poly_decl
+                name, _, decl_l = c_ast_arraydecl_to_l(decl)
+                decl_l_namespace[name] = decl_l
             # Do mapping
-            do_memory_mapping(self.fun, poly_decl_namespace)
+            do_memory_mapping(self.fun, decl_l_namespace)
 
         # Add args
         for decl in self.decls:

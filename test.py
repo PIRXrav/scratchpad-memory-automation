@@ -33,7 +33,7 @@ SMA_SOURCE = PREFIX + "sma_source.c"
 SMA_BIN = PREFIX + "sma_bin"
 
 CC = "gcc"
-CFLAGS = "-Wall -Wextra -Werror -Idmasimulator -g -O2"
+CFLAGS = "-Wall -Wextra -Werror -Idmasimulator -g -O1"
 LDFLAGS = ""
 
 
@@ -147,6 +147,7 @@ class TestKernels(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    # validation_kernel('conv2d', {'X': 5, 'Y': 32, 'DKX': 1, 'DKY': 3})
-    validation_kernel('set1', {'M': 2, 'N': 111})
+    # validation_kernel('conv2d', {'X': 256, 'Y': 8, 'DKX': 3, 'DKY': 3})
+    validation_kernel('conv2d', {'X': 4, 'Y': 4, 'DKX': 2, 'DKY': 2})
+    # validation_kernel('set1', {'M': 2, 'N': 111})
     # X64_Y5_DKX1_DKY4

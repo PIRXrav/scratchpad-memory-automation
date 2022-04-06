@@ -265,6 +265,7 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
             ir = len(ref_decl_l_cum) - ir -1
             if ir != 0:
                 area *= ref_decl_l_cum[ir-1]
+            
             log.debug(f"AREA = {area} = {v}*{ref_decl_l_cum[ir-1]}  @ {pr} @ ns={poly_loop_namespace_partionned}")
             break
         return area
@@ -522,9 +523,9 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
             buff_adr = iter_name
         else: # Repeat
             if IR == 0:
-                print('OLD:', loops_ref_access_l_ref_expr_dma[IL+1])
+                # log.debug('OLD:', loops_ref_access_l_ref_expr_dma[IL+1])
                 new_ref_expr_dma = [e.subs(for_nodes[IL].init.decls[0].name, iter_name) for e in loops_ref_access_l_ref_expr_dma[IL+1]]
-                print('NEW:', new_ref_expr_dma)
+                # log.debug('NEW:', new_ref_expr_dma)
                 buff_adr = Gencode.cgen_static_mac(new_ref_expr_dma, [1, *ref_decl_l_cum])
             else:
                 buff_adr = Gencode.cgen_static_mac(loops_ref_access_l_ref_expr_dma[IL], [1, *ref_decl_l_cum[0:IR]]) + \
@@ -554,9 +555,11 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
                 size = str(DMA_SIZE)
         else: # Repeat
             # TODO: prevent memory overflow: DONE
-
-            size = f"{loops_access_names[IL]} != {nb_repeat_block} * {block_size} ? {dma_transfer_size} : {dma_transfer_size_residual}"
-            # size = f"MIN({dma_transfer_size}, ({loops_access_l[IL]}-{loops_access_names[IL]})*{loops_ref_access_l_cum[IL-1]})"
+            if nb_repeat_residual:
+                size = f"{loops_access_names[IL]} != {nb_repeat_block} * {block_size} ? {dma_transfer_size} : {dma_transfer_size_residual}"
+                # size = f"MIN({dma_transfer_size}, ({loops_access_l[IL]}-{loops_access_names[IL]})*{loops_ref_access_l_cum[IL-1]})"
+            else:
+                size = str(dma_transfer_size)
 
 
         stmts.append(stmt_c_to_ast(f"if ({for_nodes[IL].init.decls[0].name} % {body_repeat} == 0) {{{iter_name} = 0; {size_name} = {size}; {adr_name} = {'&' + tab_rw};}}"))

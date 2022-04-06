@@ -265,16 +265,17 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
             ir = len(ref_decl_l_cum) - ir -1
             if ir != 0:
                 area *= ref_decl_l_cum[ir-1]
-            
-            log.debug(f"AREA = {area} = {v}*{ref_decl_l_cum[ir-1]}  @ {pr} @ ns={poly_loop_namespace_partionned}")
             break
+
+        eq = f"{v}" + (f"*{ref_decl_l_cum[ir-1]}" if ir != 0 else "")
+        # log.debug(f"AREA = {area} = {eq}  @ {pr} @ ns={poly_loop_namespace_partionned}")
         return area
     
     # Compute poly ref area
     from copy import deepcopy
     poly_loop_namespace_sparse = deepcopy(poly_loop_namespace)
     loops_ref_access_l_cum = []
-    for name in ("", * reversed(loops_access_names[1:])):
+    for name in ("", * reversed(loops_access_names)):
         # Update poly namespace
         poly_loop_namespace_sparse[name] = poly.Interval(0, 0)
         # Compute poly area
@@ -282,6 +283,10 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
         # Append area
         loops_ref_access_l_cum.insert(0, area) 
     
+    # Check if area computation is ok
+    assert loops_ref_access_l_cum[0] == 1
+    assert loops_ref_access_l_cum[-1] == ref_decl_l_cum[-1]
+
     loops_ref_access_l_ref_expr_dma = [[sympy.parsing.sympy_parser.parse_expr(s, evaluate=False) for s in (ref_access_names)]]
     for name in reversed(loops_access_names):
         # TODO use sympy
@@ -297,7 +302,7 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
         for i, _ in enumerate(cur_exprs):
             cur_exprs[i] = cur_exprs[i].subs(name, 0)
         loops_ref_access_l_ref_expr_ram.append(cur_exprs)
-   
+    
     # loops_ref_access_l_ref_expr.pop(0) # Remove sentinel
 
     
@@ -341,8 +346,9 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
     log.debug(f"{IL=}")
     log.debug(f"{IR=}")
 
-    log.debug(f"  `->{loops_ref_access_l_cum[IL-1]=}")
-    log.debug(f"  `->{ref_access_names[0:IR]=}")
+    log.debug(f"  `->{loops_ref_access_l_cum[IL]=}")
+    log.debug(f"  `->{loops_ref_access_l_cum[IL]=}")
+    log.debug(f"  `->{ref_access_names=}")
 
     # intervals_with_one_cut : {[a1, b1] , ..., [an, bn]} -> 
     # names_loop_intervals = CST
@@ -407,16 +413,19 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
     def namespace_reduction(poly_loop_namespace, names, div_name, div_blocks):
         # Compute namespace
         poly_loop_namespace_partionned = deepcopy(poly_loop_namespace)
-        for name in reversed(names[1:]):
+        for name in reversed(names):
             if name == div_name:
                 poly_loop_namespace_partionned[name] = poly.Interval(0, div_blocks)
-                break
+                return poly_loop_namespace_partionned
             else:
                 poly_loop_namespace_partionned[name] = poly.Interval(0, 0)
-        return poly_loop_namespace_partionned
+        raise Exception(f"{div_name} not in {names}")
 
   
-    log.debug(f"we have to repeat {loops_access_l[IL]} time the loop '{loops_access_names[IL]}' of size {loops_ref_access_l_cum[IL - 1]}")
+    il_repeat = loops_access_l[IL-1]
+    il_name = loops_access_names[IL-1]
+    il_subsize = loops_ref_access_l_cum[IL-1]
+    log.debug(f"we have to repeat {il_repeat} time the loop '{il_name}' of size {il_subsize}")
     # Find the best division
     # TODO: Algo: binary search for perfs
 
@@ -428,38 +437,36 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
         nb_repeat_residual = ref_decl_l[0] % DMA_SIZE
         dma_transfer_size_eff = DMA_SIZE
     else:
-        for block_size in reversed(range(1, loops_access_l[IL]+1)):
+        for block_size in reversed(range(1, il_repeat+1)):
             poly_loop_namespace_partionned = namespace_reduction(
                 poly_loop_namespace,
                 loops_access_names, 
-                loops_access_names[IL], 
+                il_name, 
                 block_size)
             area = compute_area(ref, poly_loop_namespace_partionned)
-            log.debug(f"{block_size=} -> {area=}")
+            # log.debug(f"{block_size=} @ ns = {poly_loop_namespace_partionned} -> {area=}")
             # Is area valid AND is multiplicity ok ? and nb_repeat_residual == 0
             if area <= DMA_SIZE:
                 break
 
+        log.debug(f"HIT : {block_size=} @ ns = {poly_loop_namespace_partionned} -> {area=}")
         assert area <= DMA_SIZE
 
-        log.debug(f"NEW {IL=}")
-        log.debug(f"NEW {IR=}")
-        log.debug(f"BEST: {block_size=} => {area=}")
 
         # Number of repeat for this configuration
         nb_repeat = block_size
         nb_repeat_int = block_size
-        nb_repeat_residual = loops_access_l[IL] % block_size
-        dma_transfer_size_eff = nb_repeat_int * loops_ref_access_l_cum[IL - 1]
+        nb_repeat_residual = il_repeat % block_size
+        dma_transfer_size_eff = nb_repeat_int * il_subsize
         dma_transfer_size = area
         
-        nb_repeat_block = floor(loops_access_l[IL] / block_size)
+        nb_repeat_block = floor(il_repeat / block_size)
 
         if nb_repeat_residual:
             poly_loop_namespace_residual = namespace_reduction(
                 poly_loop_namespace,
                 loops_access_names, 
-                loops_access_names[IL], 
+                il_name, 
                 nb_repeat_residual)
             dma_transfer_size_residual = compute_area(ref, poly_loop_namespace_residual)
         else:
@@ -472,21 +479,24 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
     log.debug(f"{nb_repeat=}, {nb_repeat_int=}, {nb_repeat_residual=}")
 
 
+    assert for_nodes[IL-1].init.decls[0].name == il_name
+
     buffer_name = f"__SMA__dma{iref}"
-    adr_name = f"__SMA__{for_nodes[IL].init.decls[0].name}_adr{iref}"
-    size_name = f"__SMA__{for_nodes[IL].init.decls[0].name}_size{iref}"
-    iter_name = f"__SMA__{for_nodes[IL].init.decls[0].name}_i{iref}"
+    adr_name = f"__SMA__{il_name}_adr{iref}"
+    size_name = f"__SMA__{il_name}_size{iref}"
+    iter_name = f"__SMA__{il_name}_i{iref}"
     cgen_dma_args = (adr_name, buffer_name, size_name)
 
-
+    # Get top for @ IL
     if IL == -1:
         topcomp = at.c_ast_get_upper_node(ast, for_nodes[-1])
     else:
-        topcomp = for_nodes[IL].stmt
+        topcomp = for_nodes[IL-1].stmt
 
     if not topcomp:
         raise Exception(f"No {topcomp=} @ {IL=}")
     
+    # Compute
     if IR == -1: # Array < DMA
         log.debug('--- WRAP MODE')
         # Compute memory mapping
@@ -524,18 +534,18 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
         else: # Repeat
             if IR == 0:
                 # log.debug('OLD:', loops_ref_access_l_ref_expr_dma[IL+1])
-                new_ref_expr_dma = [e.subs(for_nodes[IL].init.decls[0].name, iter_name) for e in loops_ref_access_l_ref_expr_dma[IL+1]]
+                new_ref_expr_dma = [e.subs(il_name, iter_name) for e in loops_ref_access_l_ref_expr_dma[IL]]
                 # log.debug('NEW:', new_ref_expr_dma)
                 buff_adr = Gencode.cgen_static_mac(new_ref_expr_dma, [1, *ref_decl_l_cum])
             else:
-                buff_adr = Gencode.cgen_static_mac(loops_ref_access_l_ref_expr_dma[IL], [1, *ref_decl_l_cum[0:IR]]) + \
+                buff_adr = Gencode.cgen_static_mac(loops_ref_access_l_ref_expr_dma[IL-1], [1, *ref_decl_l_cum[0:IR]]) + \
                     ((f'+ {iter_name}*{ref_decl_l_cum[IR-1]}') if IR != 0 else '')
                                                
 
         ast_buff = expr_c_to_ast(f"{buffer_name}[{buff_adr}]")
         at.c_ast_ref_update(ref, ast_buff.name, ast_buff.subscript)
 
-        rn = loops_ref_access_l_ref_expr_ram[IL]
+        rn = loops_ref_access_l_ref_expr_ram[IL-1]
         tab_rw = ref_name + "".join(reversed(list((f"[{i}]" for i in rn))))
         log.debug(f"substitute {(tab_rw)} # mapped @ {buffer_name}s")
         
@@ -550,21 +560,21 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
         
         if IR == 999: # Divise
             if nb_repeat_residual:
-                size = f"MIN({dma_transfer_size}, ({loops_access_l[IL]}-{loops_access_names[IL]}))"
+                size = f"MIN({dma_transfer_size}, ({il_repeat}-{il_name}))"
             else:
                 size = str(DMA_SIZE)
         else: # Repeat
             # TODO: prevent memory overflow: DONE
             if nb_repeat_residual:
-                size = f"{loops_access_names[IL]} != {nb_repeat_block} * {block_size} ? {dma_transfer_size} : {dma_transfer_size_residual}"
-                # size = f"MIN({dma_transfer_size}, ({loops_access_l[IL]}-{loops_access_names[IL]})*{loops_ref_access_l_cum[IL-1]})"
+                size = f"{il_name} != {nb_repeat_block} * {block_size} ? {dma_transfer_size} : {dma_transfer_size_residual}"
+                # size = f"MIN({dma_transfer_size}, ({il_repeat}-{il_name})*{loops_ref_access_l_cum[IL-1]})"
             else:
                 size = str(dma_transfer_size)
 
 
-        stmts.append(stmt_c_to_ast(f"if ({for_nodes[IL].init.decls[0].name} % {body_repeat} == 0) {{{iter_name} = 0; {size_name} = {size}; {adr_name} = {'&' + tab_rw};}}"))
+        stmts.append(stmt_c_to_ast(f"if ({il_name} % {body_repeat} == 0) {{{iter_name} = 0; {size_name} = {size}; {adr_name} = {'&' + tab_rw};}}"))
         if ref_is_read:
-            stmts.append(stmt_c_to_ast(f"if ({for_nodes[IL].init.decls[0].name} % {body_repeat} == 0) {{{Gencode.cgen_dma_ld(*cgen_dma_args)};}}"))
+            stmts.append(stmt_c_to_ast(f"if ({il_name} % {body_repeat} == 0) {{{Gencode.cgen_dma_ld(*cgen_dma_args)};}}"))
         
         for stmt in ast_sub_for.block_items:
             stmts.append(stmt)
@@ -572,7 +582,7 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
         stmts.append(stmt_c_to_ast(f'{iter_name}++;'))
 
         if ref_is_write:
-            stmts.append(stmt_c_to_ast(f"if ({for_nodes[IL].init.decls[0].name} % {body_repeat} == {body_repeat}-1 || {for_nodes[IL].init.decls[0].name} == {loops_access_l[IL]}-1) {{{Gencode.cgen_dma_st(*cgen_dma_args)};}}"))
+            stmts.append(stmt_c_to_ast(f"if ({il_name} % {body_repeat} == {body_repeat}-1 || {il_name} == {il_repeat}-1) {{{Gencode.cgen_dma_st(*cgen_dma_args)};}}"))
 
 
         # print(ast_to_c_highlight(ast_intermediate))

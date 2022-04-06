@@ -421,66 +421,57 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
                 poly_loop_namespace_partionned[name] = poly.Interval(0, 0)
         raise Exception(f"{div_name} not in {names}")
 
-  
+    # IL configuration
     il_repeat = loops_access_l[IL-1]
     il_name = loops_access_names[IL-1]
     il_subsize = loops_ref_access_l_cum[IL-1]
+    assert for_nodes[IL-1].init.decls[0].name == il_name
+
     log.debug(f"we have to repeat {il_repeat} time the loop '{il_name}' of size {il_subsize}")
     # Find the best division
     # TODO: Algo: binary search for perfs
+    # Compute new loop poly
+    for block_size in reversed(range(1, il_repeat+1)):
+        poly_loop_namespace_partionned = namespace_reduction(
+            poly_loop_namespace,
+            loops_access_names, 
+            il_name, 
+            block_size)
+        area = compute_area(ref, poly_loop_namespace_partionned)
+        # log.debug(f"{block_size=} @ ns = {poly_loop_namespace_partionned} -> {area=}")
+        # Is area valid AND is multiplicity ok ? and nb_repeat_residual == 0
+        if area <= DMA_SIZE:
+            break
+
+    log.debug(f"HIT : {block_size=} @ ns = {poly_loop_namespace_partionned} -> {area=}")
+    assert area <= DMA_SIZE
 
 
-    if IR == 999: # Divise
-        nb_repeat = ref_decl_l[0] / DMA_SIZE
-        nb_repeat_int = ceil(nb_repeat)
-        dma_transfer_size = DMA_SIZE
-        nb_repeat_residual = ref_decl_l[0] % DMA_SIZE
-        dma_transfer_size_eff = DMA_SIZE
+    # Number of repeat for this configuration
+    nb_repeat_int = block_size
+    nb_repeat_residual = il_repeat % block_size
+    dma_transfer_size_eff = nb_repeat_int * il_subsize
+    dma_transfer_size = area
+
+    nb_repeat_block = floor(il_repeat / block_size)
+
+    if nb_repeat_residual:
+        poly_loop_namespace_residual = namespace_reduction(
+            poly_loop_namespace,
+            loops_access_names, 
+            il_name, 
+            nb_repeat_residual)
+        dma_transfer_size_residual = compute_area(ref, poly_loop_namespace_residual)
     else:
-        for block_size in reversed(range(1, il_repeat+1)):
-            poly_loop_namespace_partionned = namespace_reduction(
-                poly_loop_namespace,
-                loops_access_names, 
-                il_name, 
-                block_size)
-            area = compute_area(ref, poly_loop_namespace_partionned)
-            # log.debug(f"{block_size=} @ ns = {poly_loop_namespace_partionned} -> {area=}")
-            # Is area valid AND is multiplicity ok ? and nb_repeat_residual == 0
-            if area <= DMA_SIZE:
-                break
+        dma_transfer_size_residual = 1010101010
 
-        log.debug(f"HIT : {block_size=} @ ns = {poly_loop_namespace_partionned} -> {area=}")
-        assert area <= DMA_SIZE
+    log.debug(f" ===> DMA OPS: {nb_repeat_int}->{dma_transfer_size} & {nb_repeat_residual}->{dma_transfer_size_residual}")
+    log.debug(f" ===> DMA OPS: {nb_repeat_block} x {dma_transfer_size} + {nb_repeat_residual>0} x {dma_transfer_size_residual}")
 
+    stats_dma_ops = nb_repeat_block*dma_transfer_size + (nb_repeat_residual>0)*dma_transfer_size_residual
+    log.debug(f"Nuber of bytes loaded/stored = {stats_dma_ops}")
 
-        # Number of repeat for this configuration
-        nb_repeat = block_size
-        nb_repeat_int = block_size
-        nb_repeat_residual = il_repeat % block_size
-        dma_transfer_size_eff = nb_repeat_int * il_subsize
-        dma_transfer_size = area
-        
-        nb_repeat_block = floor(il_repeat / block_size)
-
-        if nb_repeat_residual:
-            poly_loop_namespace_residual = namespace_reduction(
-                poly_loop_namespace,
-                loops_access_names, 
-                il_name, 
-                nb_repeat_residual)
-            dma_transfer_size_residual = compute_area(ref, poly_loop_namespace_residual)
-        else:
-            dma_transfer_size_residual = 1010101010
-
-        log.debug(f" ===> DMA OPS: {nb_repeat_int}->{dma_transfer_size} & {nb_repeat_residual}->{dma_transfer_size_residual}")
-        log.debug(f" ===> DMA OPS: {nb_repeat_block} x {dma_transfer_size} + {nb_repeat_residual>0} x {dma_transfer_size_residual}")
-        
-    log.debug('--- ' + ('DIVISE' if IR == 0 else 'REPEAT') + ' MODE')
-    log.debug(f"{nb_repeat=}, {nb_repeat_int=}, {nb_repeat_residual=}")
-
-
-    assert for_nodes[IL-1].init.decls[0].name == il_name
-
+    # DMA configuration
     buffer_name = f"__SMA__dma{iref}"
     adr_name = f"__SMA__{il_name}_adr{iref}"
     size_name = f"__SMA__{il_name}_size{iref}"
@@ -502,11 +493,11 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
         # Compute memory mapping
         dma_transfer_size = ref_decl_l_cum[-1]
         dma_transfer_size_eff = dma_transfer_size
-        tab_rw = ref_name
-        log.debug(f"substitute {(tab_rw)} # mapped @ {buffer_name}")
+        mapping_ram_name = ref_name
+        log.debug(f"substitute {(mapping_ram_name)} # mapped @ {buffer_name}")
         # Insert transactions
         topcomp.block_items.insert(0, stmt_c_to_ast(f"int {size_name} = {dma_transfer_size};"))
-        topcomp.block_items.insert(1, stmt_c_to_ast(f'void * {adr_name} = {tab_rw};'))
+        topcomp.block_items.insert(1, stmt_c_to_ast(f'void * {adr_name} = {mapping_ram_name};'))
         if ref_is_read:  # insert LD
             topcomp.block_items.insert(2, expr_c_to_ast(Gencode.cgen_dma_ld(*cgen_dma_args)))
         if ref_is_write:  # Insert ST
@@ -517,73 +508,53 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
         at.c_ast_ref_update(ref, ast_buff.name, ast_buff.subscript)
         
     else:
+        # replace ref@ -> dma@
+        # TODO why this works ?
+        if IR == 0:
+            # log.debug('OLD:', loops_ref_access_l_ref_expr_dma[IL+1])
+            new_ref_expr_dma = [e.subs(il_name, iter_name) for e in loops_ref_access_l_ref_expr_dma[IL]]
+            # log.debug('NEW:', new_ref_expr_dma)
+            buff_adr = Gencode.cgen_static_mac(new_ref_expr_dma, [1, *ref_decl_l_cum])
+        else:
+            buff_adr = Gencode.cgen_static_mac(loops_ref_access_l_ref_expr_dma[IL-1], [1, *ref_decl_l_cum[0:IR]]) + \
+                ((f'+ {iter_name}*{ref_decl_l_cum[IR-1]}') if IR != 0 else '')
 
-
-        # Find the for @ IL
-        
-        ast_sub_for = c_ast.Compound(topcomp.block_items)
-        # print(at.ast_to_c_highlight(ast_sub_for))
-
-        # print(ast_to_c_highlight(ast_sub_for))
-
-        # replace tab <-> BUFF
-        # ref_access_names = loops_ref_access_l_ref_expr[IL - 1] # Get valid names
-        # TODO outdated (/!\ smaller cube)
-        if IR == 999: # Divise
-            buff_adr = iter_name
-        else: # Repeat
-            if IR == 0:
-                # log.debug('OLD:', loops_ref_access_l_ref_expr_dma[IL+1])
-                new_ref_expr_dma = [e.subs(il_name, iter_name) for e in loops_ref_access_l_ref_expr_dma[IL]]
-                # log.debug('NEW:', new_ref_expr_dma)
-                buff_adr = Gencode.cgen_static_mac(new_ref_expr_dma, [1, *ref_decl_l_cum])
-            else:
-                buff_adr = Gencode.cgen_static_mac(loops_ref_access_l_ref_expr_dma[IL-1], [1, *ref_decl_l_cum[0:IR]]) + \
-                    ((f'+ {iter_name}*{ref_decl_l_cum[IR-1]}') if IR != 0 else '')
-                                               
-
-        ast_buff = expr_c_to_ast(f"{buffer_name}[{buff_adr}]")
+        mapping_dma_name = f"{buffer_name}[{buff_adr}]"
+        ast_buff = expr_c_to_ast(mapping_dma_name)
         at.c_ast_ref_update(ref, ast_buff.name, ast_buff.subscript)
 
+        # Compute base ref@
         rn = loops_ref_access_l_ref_expr_ram[IL-1]
-        tab_rw = ref_name + "".join(reversed(list((f"[{i}]" for i in rn))))
-        log.debug(f"substitute {(tab_rw)} # mapped @ {buffer_name}s")
-        
-        body_repeat = DMA_SIZE if IR == 999 else nb_repeat_int
+        mapping_ram_name = ref_name + "".join(reversed(list((f"[{i}]" for i in rn))))
+        # log.debug(f"substitute {(mapping_ram_name)} # mapped @ {buffer_name}s")
+        log.debug(f"  --> {mapping_ram_name=}")
+        log.debug(f"  --> {mapping_dma_name=}")
 
-            
+        # Code generation
         stmts = []
         stmts.append(stmt_c_to_ast(f"static int {iter_name};"))
         stmts.append(stmt_c_to_ast(f"static int {size_name};"))
         stmts.append(stmt_c_to_ast(f'static void * {adr_name};'))
 
-        
-        if IR == 999: # Divise
-            if nb_repeat_residual:
-                size = f"MIN({dma_transfer_size}, ({il_repeat}-{il_name}))"
-            else:
-                size = str(DMA_SIZE)
-        else: # Repeat
-            # TODO: prevent memory overflow: DONE
-            if nb_repeat_residual:
-                size = f"{il_name} != {nb_repeat_block} * {block_size} ? {dma_transfer_size} : {dma_transfer_size_residual}"
-                # size = f"MIN({dma_transfer_size}, ({il_repeat}-{il_name})*{loops_ref_access_l_cum[IL-1]})"
-            else:
-                size = str(dma_transfer_size)
+    
+        if nb_repeat_residual:
+            size = f"{il_name} != {nb_repeat_block} * {block_size} ? {dma_transfer_size} : {dma_transfer_size_residual}"
+            # size = f"MIN({dma_transfer_size}, ({il_repeat}-{il_name})*{loops_ref_access_l_cum[IL-1]})"
+        else:
+            size = str(dma_transfer_size)
 
 
-        stmts.append(stmt_c_to_ast(f"if ({il_name} % {body_repeat} == 0) {{{iter_name} = 0; {size_name} = {size}; {adr_name} = {'&' + tab_rw};}}"))
+        stmts.append(stmt_c_to_ast(f"if ({il_name} % {nb_repeat_int} == 0) {{{iter_name} = 0; {size_name} = {size}; {adr_name} = {'&' + mapping_ram_name};}}"))
         if ref_is_read:
-            stmts.append(stmt_c_to_ast(f"if ({il_name} % {body_repeat} == 0) {{{Gencode.cgen_dma_ld(*cgen_dma_args)};}}"))
+            stmts.append(stmt_c_to_ast(f"if ({il_name} % {nb_repeat_int} == 0) {{{Gencode.cgen_dma_ld(*cgen_dma_args)};}}"))
         
-        for stmt in ast_sub_for.block_items:
+        for stmt in topcomp.block_items:
             stmts.append(stmt)
 
         stmts.append(stmt_c_to_ast(f'{iter_name}++;'))
 
         if ref_is_write:
-            stmts.append(stmt_c_to_ast(f"if ({il_name} % {body_repeat} == {body_repeat}-1 || {il_name} == {il_repeat}-1) {{{Gencode.cgen_dma_st(*cgen_dma_args)};}}"))
-
+            stmts.append(stmt_c_to_ast(f"if ({il_name} % {nb_repeat_int} == {nb_repeat_int}-1 || {il_name} == {il_repeat}-1) {{{Gencode.cgen_dma_st(*cgen_dma_args)};}}"))
 
         # print(ast_to_c_highlight(ast_intermediate))
         topcomp.block_items = stmts

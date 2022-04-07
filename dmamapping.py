@@ -210,7 +210,7 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
 
     # Analyse reference declaration
     ref_decl_l = ref_decl_namespace[ref_name]
-    ref_decl_l = list(reversed(ref_decl_l))
+    ref_decl_l = [1, *list(reversed(ref_decl_l))]
     ref_decl_l_cum = list(np.cumprod(ref_decl_l))
     
     # Gencode vars
@@ -262,12 +262,12 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
             if v == 1: # Cst dim
                 continue
             area *= v
-            ir = len(ref_decl_l_cum) - ir -1
+            ir = len(ref_decl_l_cum) - ir -1 -1
             if ir != 0:
-                area *= ref_decl_l_cum[ir-1]
+                area *= ref_decl_l_cum[ir]
             break
 
-        eq = f"{v}" + (f"*{ref_decl_l_cum[ir-1]}" if ir != 0 else "")
+        # eq = f"{v}" + (f"*{ref_decl_l_cum[ir]}" if ir != 0 else "")
         # log.debug(f"AREA = {area} = {eq}  @ {pr} @ ns={poly_loop_namespace_partionned}")
         return area
     
@@ -494,7 +494,6 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
         dma_transfer_size = ref_decl_l_cum[-1]
         dma_transfer_size_eff = dma_transfer_size
         mapping_ram_name = ref_name
-        log.debug(f"substitute {(mapping_ram_name)} # mapped @ {buffer_name}")
         # Insert transactions
         topcomp.block_items.insert(0, stmt_c_to_ast(f"int {size_name} = {dma_transfer_size};"))
         topcomp.block_items.insert(1, stmt_c_to_ast(f'void * {adr_name} = {mapping_ram_name};'))
@@ -503,22 +502,14 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
         if ref_is_write:  # Insert ST
             topcomp.block_items.append(expr_c_to_ast(Gencode.cgen_dma_st(*cgen_dma_args)))
         # Update ref
-        buff_adr = Gencode.cgen_static_mac(ref_access_names, [1, *ref_decl_l_cum[0:-1]])
+        buff_adr = Gencode.cgen_static_mac(ref_access_names, ref_decl_l_cum[0:-1])
         ast_buff = expr_c_to_ast(f"{buffer_name}[{buff_adr}]")
         at.c_ast_ref_update(ref, ast_buff.name, ast_buff.subscript)
         
     else:
         # replace ref@ -> dma@
-        # TODO why this works ?
-        if IR == 0:
-            # log.debug('OLD:', loops_ref_access_l_ref_expr_dma[IL+1])
-            new_ref_expr_dma = [e.subs(il_name, iter_name) for e in loops_ref_access_l_ref_expr_dma[IL]]
-            # log.debug('NEW:', new_ref_expr_dma)
-            buff_adr = Gencode.cgen_static_mac(new_ref_expr_dma, [1, *ref_decl_l_cum])
-        else:
-            buff_adr = Gencode.cgen_static_mac(loops_ref_access_l_ref_expr_dma[IL-1], [1, *ref_decl_l_cum[0:IR]]) + \
-                ((f'+ {iter_name}*{ref_decl_l_cum[IR-1]}') if IR != 0 else '')
-
+        new_ref_expr_dma = [e.subs(il_name, iter_name) for e in loops_ref_access_l_ref_expr_dma[IL]]
+        buff_adr = Gencode.cgen_static_mac(new_ref_expr_dma, ref_decl_l_cum)
         mapping_dma_name = f"{buffer_name}[{buff_adr}]"
         ast_buff = expr_c_to_ast(mapping_dma_name)
         at.c_ast_ref_update(ref, ast_buff.name, ast_buff.subscript)
@@ -526,9 +517,9 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
         # Compute base ref@
         rn = loops_ref_access_l_ref_expr_ram[IL-1]
         mapping_ram_name = ref_name + "".join(reversed(list((f"[{i}]" for i in rn))))
-        # log.debug(f"substitute {(mapping_ram_name)} # mapped @ {buffer_name}s")
-        log.debug(f"  --> {mapping_ram_name=}")
+
         log.debug(f"  --> {mapping_dma_name=}")
+        log.debug(f"  --> {mapping_ram_name=}")
 
         # Code generation
         stmts = []

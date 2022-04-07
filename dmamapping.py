@@ -303,8 +303,6 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
             cur_exprs[i] = cur_exprs[i].subs(name, 0)
         loops_ref_access_l_ref_expr_ram.append(cur_exprs)
     
-    # loops_ref_access_l_ref_expr.pop(0) # Remove sentinel
-
     
     log.debug(f"{ref_name=}")
     log.debug(f"{ref_is_read=}")
@@ -349,58 +347,6 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
     log.debug(f"  `->{loops_ref_access_l_cum[IL]=}")
     log.debug(f"  `->{loops_ref_access_l_cum[IL]=}")
     log.debug(f"  `->{ref_access_names=}")
-
-    # intervals_with_one_cut : {[a1, b1] , ..., [an, bn]} -> 
-    # names_loop_intervals = CST
-    # f IN intervals_with_one_cut(names_loop_intervals)
-    # names_intervals = f(names_loop_intervals)
-    # indx_interval = EVALUATE(ref_acces, names_intervals)
-    # sizes     = CST
-    # cost = ARRAY_C_USAGE(indx_interval, sizes)
-    # cost < DMA
-    # ==> Maximise cost !
-
-    # ===> (NO)
-
-
-    # poly_max = poly_loop # No cut
-    # poly_min = poly.Polyhedron(1, 1)
-
-    # INFINITY = DMA_SIZE + 1
-    # def loss_function(poly):
-    #     """The cost should be as close to DMA_SIZE as possible, but never higher
-    #     """
-    #     memory_cost_bytes = mem_cost(poly)
-    #     if memory_cost_bytes > DMA_SIZE:
-    #         return INFINITY
-    #     else:
-    #         return DMA_SIZE - memory_cost_bytes
-    
-
-
-    # while poly_max != poly_min:
-
-    #     poly_mean = poly.Polyhedron.mean(poly_max, poly_min)
-
-    #     loss_max  = loss_function(poly_max)
-    #     loss_mean = loss_function(poly_mean)
-    #     loss_min  = loss_function(poly_min)
-        
-    #     if loss_mean == INFINITY:
-    #         poly_max = poly_mean
-    #     else:
-    #         poly_min = poly_mean
-
-
-
-    # Remove __SMA__
-    # for i, name in reversed(list(enumerate(loops_access_names))):
-    #     if "__SMA__" in name:    
-    #         loops_access_names.pop(i)
-    #         loops_access_l.pop(i)
-    
-
-
 
 
     # TODO: Lecture ne correspondant pas aux index direct exemple tab[i+1] (wip)
@@ -478,9 +424,11 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
     iter_name = f"__SMA__{il_name}_i{iref}"
     cgen_dma_args = (adr_name, buffer_name, size_name)
 
-    # Get top for @ IL
+    # The higher Compound node
+    super_top_comp = at.c_ast_get_upper_node(ast, for_nodes[-1])
+    # Get Compound @ IL
     if IL == -1:
-        topcomp = at.c_ast_get_upper_node(ast, for_nodes[-1])
+        topcomp = super_top_comp
     else:
         topcomp = for_nodes[IL-1].stmt
 
@@ -521,12 +469,14 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
         log.debug(f"  --> {mapping_dma_name=}")
         log.debug(f"  --> {mapping_ram_name=}")
 
+
+        # New variables
+        super_top_comp.block_items.insert(0, stmt_c_to_ast(f'void * {adr_name} = (char*)0xdeadc0de;'))
+        super_top_comp.block_items.insert(0, stmt_c_to_ast(f"int {size_name} = 0xdeadc0de;"))
+        super_top_comp.block_items.insert(0, stmt_c_to_ast(f"int {iter_name} = 0xdeadc0de;"))
+        
         # Code generation
         stmts = []
-        stmts.append(stmt_c_to_ast(f"static int {iter_name};"))
-        stmts.append(stmt_c_to_ast(f"static int {size_name};"))
-        stmts.append(stmt_c_to_ast(f'static void * {adr_name};'))
-
     
         if nb_repeat_residual:
             size = f"{il_name} != {nb_repeat_block} * {block_size} ? {dma_transfer_size} : {dma_transfer_size_residual}"
@@ -534,20 +484,24 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
         else:
             size = str(dma_transfer_size)
 
-
+        # Set variables
         stmts.append(stmt_c_to_ast(f"if ({il_name} % {nb_repeat_int} == 0) {{{iter_name} = 0; {size_name} = {size}; {adr_name} = {'&' + mapping_ram_name};}}"))
+        
+        # Load
         if ref_is_read:
             stmts.append(stmt_c_to_ast(f"if ({il_name} % {nb_repeat_int} == 0) {{{Gencode.cgen_dma_ld(*cgen_dma_args)};}}"))
         
+        # Old statements
         for stmt in topcomp.block_items:
             stmts.append(stmt)
 
+        # Local increment
         stmts.append(stmt_c_to_ast(f'{iter_name}++;'))
 
+        # Store
         if ref_is_write:
             stmts.append(stmt_c_to_ast(f"if ({il_name} % {nb_repeat_int} == {nb_repeat_int}-1 || {il_name} == {il_repeat}-1) {{{Gencode.cgen_dma_st(*cgen_dma_args)};}}"))
 
-        # print(ast_to_c_highlight(ast_intermediate))
         topcomp.block_items = stmts
     
     dma_efficiency = dma_transfer_size / DMA_SIZE

@@ -3,10 +3,13 @@ import logging as log
 import logging
 from colorlog import ColoredFormatter
 
+DEBUG_MODE = 1
+
 if __name__ == '__main__':
     LOG_LEVEL = logging.DEBUG
 else:
     LOG_LEVEL = logging.ERROR
+    DEBUG_MODE = 0
 
 LOGFORMAT = "  %(log_color)s%(levelname)-8s%(reset)s | %(log_color)s%(message)s%(reset)s"
 
@@ -19,6 +22,7 @@ logging.basicConfig(
 )
 
 log = logging.getLogger()
+
 from isort import file
 import subprocess
 from kernelgenerator import Kernel, kernel_compute_name
@@ -37,6 +41,31 @@ CFLAGS = "-Wall -Wextra -Werror -Idmasimulator -g -O1"
 LDFLAGS = ""
 
 
+from functools import wraps
+from time import time
+
+
+timing_stack = []
+def timing(f):
+    @wraps(f)
+    def wrap(*args, **kw):
+        global timing_stack
+        ts = time()
+        result = f(*args, **kw)
+        te = time()
+        timing_stack.append(f'func:{f.__name__:>20} took: {int((te-ts)*1000):>8} ms')
+        # log.info(f'func:{f.__name__} args:[{args}, {kw}] took: %{te-ts} sec')
+        return result
+    return wrap if DEBUG_MODE else f
+
+
+def timing_dump():
+    global timing_stack
+    for s in timing_stack:
+        log.info(s)
+    timing_stack = []
+
+
 def write_file(filename, code):
     with open(filename, "w") as f:
         f.write(code)
@@ -51,36 +80,54 @@ def shell(cmd, verbose=False):
 
 
 def test_kernel(kernel_name, config, do_mem_mapping=True):
-    # Generate C code
-    kernel = Kernel(kernel_name, config)
-    kernel.process(do_mem_mapping=do_mem_mapping)
 
-    hname, hcode = kernel.generate_header()
-    if do_mem_mapping:
-        log.debug(c_highlight(hcode))
-    cname, ccode = kernel.generate_benchmark()
-    # print(c_highlight(ccode))
-    gdbname, gdbcode, dumpfiles = kernel.generate_benchmark_gdb(
-        prefix=PREFIX + ("dma_" if do_mem_mapping else "")
-    )
-    # print(gdbcode)
+    @timing
+    def generate(kernel_name, config):
+        # Generate C code
+        kernel = Kernel(kernel_name, config)
+        kernel.process(do_mem_mapping=do_mem_mapping)
 
-    hname = PREFIX + hname
-    cname = PREFIX + cname
-    gdbname = PREFIX + gdbname
+        hname, hcode = kernel.generate_header()
+        if do_mem_mapping:
+            log.debug(c_highlight(hcode))
+        cname, ccode = kernel.generate_benchmark()
+        # print(c_highlight(ccode))
+        gdbname, gdbcode, dumpfiles = kernel.generate_benchmark_gdb(
+            prefix=PREFIX + ("dma_" if do_mem_mapping else "")
+        )
+        return (hname, hcode, cname, ccode, gdbname, gdbcode), dumpfiles
+
+    @timing
+    def write_files(hname, hcode, cname, ccode, gdbname, gdbcode):
+        hname = PREFIX + hname
+        cname = PREFIX + cname
+        gdbname = PREFIX + gdbname
+        write_file(hname, hcode)
+        write_file(cname, ccode)
+        write_file(gdbname, gdbcode)
+        return hname, cname, gdbname
+    
+    @timing
+    def build(cnames, binname):
+        cmd = f"{CC} {CFLAGS} {LDFLAGS} {' '.join(cnames)} -I{PREFIX} -o {binname}"
+        ret = shell(cmd)
+        return ret
+    
+    @timing
+    def run_simu(gdbname, binname):
+        # Run
+        cmd = f"gdb --batch --command={gdbname} --args {binname}"
+        ret = shell(cmd)
+        shell(f'wc -c {" ".join(dumpfiles)}')
+        return dumpfiles
+    
     binname = PREFIX + "sma_bin" + ("_mem_mapping" if do_mem_mapping else "")
-    write_file(hname, hcode)
-    write_file(cname, ccode)
-    write_file(gdbname, gdbcode)
-
-    cmd = f"{CC} {CFLAGS} {LDFLAGS} {cname} -I{PREFIX} -o {binname}"
-    ret = shell(cmd)
-    # Run
-    cmd = f"gdb --batch --command={gdbname} --args {binname}"
-    ret = shell(cmd)
-    shell(f'wc -c {" ".join(dumpfiles)}')
+    files_plus_code, dumpfiles = generate(kernel_name, config)
+    hname, cname, gdbname = write_files(*files_plus_code)
+    build([cname], binname)
+    run_simu(gdbname, binname)
     return dumpfiles
-    # dump binary memory file.bin weights (char*)weights + sizeof(weights)
+
 
 
 def validation_kernel(kernel_name, config):
@@ -151,3 +198,5 @@ if __name__ == '__main__':
     # validation_kernel('conv2d', {'X': 32, 'Y': 8, 'DKX': 1, 'DKY': 4})
     # validation_kernel('set1', {'M': 200, 'N': 2})
     # X64_Y5_DKX1_DKY4
+
+    timing_dump()

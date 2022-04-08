@@ -194,9 +194,9 @@ class TestKernels(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    validation_kernel('conv2d', {'X': 256, 'Y': 8, 'DKX': 3, 'DKY': 3})
+    # validation_kernel('conv2d', {'X': 256, 'Y': 8, 'DKX': 3, 'DKY': 3})
     # validation_kernel('conv2d', {'X': 32, 'Y': 8, 'DKX': 1, 'DKY': 4})
     # validation_kernel('set1', {'M': 200, 'N': 2})
     # X64_Y5_DKX1_DKY4
-
+    validation_kernel("set10", {'N': 32})
     timing_dump()

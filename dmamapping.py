@@ -200,6 +200,8 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
     for_nodes = at.c_ast_get_for_fathers(ast, ref)
     poly_loop = c_ast_loop_to_interval_name(for_nodes)
     poly_loop_namespace = {name: interval for interval, name in poly_loop}
+    loops_access_l = [*[interval.area() for interval, _ in poly_loop], 1]
+    loops_access_names = [*[name for _, name in poly_loop], '__SENTINEL__']
 
     # Analyse reference
     ref_is_read, ref_is_write = at.c_ast_ref_is_rw(ast, ref)
@@ -213,32 +215,6 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
     ref_decl_l = [1, *list(reversed(ref_decl_l))]
     ref_decl_l_cum = list(np.cumprod(ref_decl_l))
     
-    # Gencode vars
-    loops_access_l = [interval.area() for interval, _ in poly_loop]
-    loops_access_names = [name for _, name in poly_loop]
-
-    # for (int n = 0; n < 1000; n++){ # Cost 
-    #     for (int i = 0; i < 100; i++){ # Cost 110
-    #         for(int j = 0; j < 10; j++{ # Cost 10
-    #             tab[n + i + i + 20] 
-    #         }
-    #     }
-    # }
-    # Loop   : i     -> out_name, Interval
-    # ref    : i     -> equation, in_names
-    # decl   : i     -> Interval
-
-    # Loop = <i->name, IPoly>
-    # Ref  = <names->IPoly>
-    
-    # Interval = [a, b]
-    # NPoly   : i    -> name, Interval
-    # IPoly   : i    -> Interval
-    # PrePoly : i    -> in_names, equation
-    # PrePoly.evaluate(namespace=NPoly) -> iPoly
-    # 
-    # IPoly.divise_by(DMA) -> #sub_poly, IR, ...
-    # 
 
     # if 'input' in ref_name:
     #     print("-- no input")
@@ -275,7 +251,7 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
     from copy import deepcopy
     poly_loop_namespace_sparse = deepcopy(poly_loop_namespace)
     loops_ref_access_l_cum = []
-    for name in ("", * reversed(loops_access_names)):
+    for name in reversed(loops_access_names):
         # Update poly namespace
         poly_loop_namespace_sparse[name] = poly.Interval(0, 0)
         # Compute poly area
@@ -345,7 +321,6 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
     log.debug(f"{IR=}")
 
     log.debug(f"  `->{loops_ref_access_l_cum[IL]=}")
-    log.debug(f"  `->{loops_ref_access_l_cum[IL]=}")
     log.debug(f"  `->{ref_access_names=}")
 
 
@@ -371,7 +346,7 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
     il_repeat = loops_access_l[IL-1]
     il_name = loops_access_names[IL-1]
     il_subsize = loops_ref_access_l_cum[IL-1]
-    assert for_nodes[IL-1].init.decls[0].name == il_name
+    # assert for_nodes[IL-1].init.decls[0].name == il_name
 
     log.debug(f"we have to repeat {il_repeat} time the loop '{il_name}' of size {il_subsize}")
     # Find the best division

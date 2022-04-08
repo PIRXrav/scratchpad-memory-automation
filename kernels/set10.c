@@ -14,7 +14,7 @@ void set10(){
     for (int n = 0; n < N; n++) {
         output[n] = 10;
         for(int k = 0; k < 10; k++) {
-            // output[n] += 1;
+            output[n] += 1;
         }
     }
 }

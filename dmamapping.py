@@ -62,15 +62,39 @@ def do_memory_mapping(ast, ref_decl_namespace):
         do_memory_mapping_on_topfor(ast, topfor, ref_decl_namespace)
 
 
+from collections import defaultdict
+
 def do_memory_mapping_on_topfor(ast, topfor, ref_decl_namespace):
     log.debug("TOP FORS:")
-    # print(at.ast_to_c_highlight(topfor))
+
+    # Comute refs
     refs = at.c_ast_get_all_top_ref(topfor)
-    nb_refs = len(refs)
-    log.debug(f"TOP REFS ({nb_refs}):")
+
+    # Find duplicate refs
+    merged_refs = defaultdict(list)
     for i, ref in enumerate((refs)):
+        reg_name, ast_l = at.c_ast_ref_get_l(ref)
+        merged_refs[reg_name].append(ref)
+
+        
+    # TODO: polyhedron
+    # For now, all refl must be equal
+    for ref_name, refs in merged_refs.items():
+        log.debug(f"{reg_name}")
+        for ref in refs:
+            log.debug(f"{at.ast_to_c(ref):20} RW={at.c_ast_ref_is_rw(ast, ref)}")
+            if at.ast_to_c(ref) != at.ast_to_c(refs[0]):
+                raise Exception(f"Unsupported refeence: {at.ast_to_c(ref)} != {at.ast_to_c(refs[0])}")
+    
+    nb_refs = len(merged_refs)
+    if nb_refs > 3:
+        raise Exception(f"Unsupported number of refs: {nb_refs}")
+
+    log.debug(f"TOP REFS ({nb_refs}):")
+    for i, (ref_name, refs) in enumerate(merged_refs.items()):
         log.debug(f"{at.ast_to_c(ref):20} RW={at.c_ast_ref_is_rw(ast, ref)}")
-        dma_mapping_algo3(ast, ref, i, ref_decl_namespace)
+        dma_mapping_algo3(ast, refs, i, ref_decl_namespace)
+
 
 from copy import copy
 import polyhedron as poly
@@ -192,8 +216,11 @@ def set_to_1(s):
     return res
 
 
-def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
+def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
     """ """
+
+    ref = refs[0]
+
     log.debug(f'========== DMA MAPPING {at.ast_to_c(ref)}')
 
     # Analyse Loops
@@ -427,7 +454,8 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
         # Update ref
         buff_adr = Gencode.cgen_static_mac(ref_access_names, ref_decl_l_cum[0:-1])
         ast_buff = expr_c_to_ast(f"{buffer_name}[{buff_adr}]")
-        at.c_ast_ref_update(ref, ast_buff.name, ast_buff.subscript)
+        for ref in refs:
+            at.c_ast_ref_update(ref, ast_buff.name, ast_buff.subscript)
         
     else:
         # replace ref@ -> dma@
@@ -435,7 +463,8 @@ def dma_mapping_algo3(ast, ref, iref, ref_decl_namespace):
         buff_adr = Gencode.cgen_static_mac(new_ref_expr_dma, ref_decl_l_cum)
         mapping_dma_name = f"{buffer_name}[{buff_adr}]"
         ast_buff = expr_c_to_ast(mapping_dma_name)
-        at.c_ast_ref_update(ref, ast_buff.name, ast_buff.subscript)
+        for ref in refs:
+            at.c_ast_ref_update(ref, ast_buff.name, ast_buff.subscript)
 
         # Compute base ref@
         rn = loops_ref_access_l_ref_expr_ram[IL-1]

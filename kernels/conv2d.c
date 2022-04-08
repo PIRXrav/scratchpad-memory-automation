@@ -17,8 +17,8 @@ char weights[DKY][DKX];
 
 void conv2d(){
     for (int y = 0; y < (Y-DKY+1); y++) {
-        // output[n] = 0; TODO
         for (int x = 0; x < (X-DKX+1); x++) {
+            output[y][x] = 0;
             for (int dky = 0; dky < DKY; dky++){
                 for (int dkx = 0; dkx < DKX; dkx++){
                     output[y][x] += input[y+dky][x+dkx] * weights[dky][dkx];

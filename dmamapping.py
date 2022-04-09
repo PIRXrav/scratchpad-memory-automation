@@ -10,34 +10,24 @@ C src
 
 """
 
-from operator import index
 import sys
-
-from pycparser import parse_file, c_generator, CParser
 from pycparser import c_ast
-
 from collections import defaultdict
 from itertools import chain
-
-
-from pygments import highlight
-from pygments.lexers import CLexer
-from pygments.formatters import TerminalFormatter
-
 import numpy as np
-
 import asttools as at
 from asttools import stmt_c_to_ast, expr_c_to_ast
-
-from math import ceil, floor
-
+from math import floor
 import logging
+import sympy
+from copy import copy
+import polyhedron as poly
 
 log = logging.getLogger(__name__)
 
-import sympy
 
 DMA_SIZE = 129
+
 
 class Gencode:
     @classmethod
@@ -47,13 +37,10 @@ class Gencode:
     @classmethod
     def cgen_dma_st(self, adr, buff, size):
         return f"DMA_ST({adr}, {buff}, {size})"
-    
+
     @classmethod
     def cgen_static_mac(self, A, B):
-        return '+'.join(f'(({a}) * ({b}))' for a, b in zip(A, B))
-
-
-import sys
+        return "+".join(f"(({a}) * ({b}))" for a, b in zip(A, B))
 
 
 def do_memory_mapping(ast, ref_decl_namespace):
@@ -61,8 +48,6 @@ def do_memory_mapping(ast, ref_decl_namespace):
     for topfor in at.c_ast_get_all_topfor(ast):
         do_memory_mapping_on_topfor(ast, topfor, ref_decl_namespace)
 
-
-from collections import defaultdict
 
 def do_memory_mapping_on_topfor(ast, topfor, ref_decl_namespace):
     log.debug("TOP FORS:")
@@ -76,7 +61,6 @@ def do_memory_mapping_on_topfor(ast, topfor, ref_decl_namespace):
         reg_name, ast_l = at.c_ast_ref_get_l(ref)
         merged_refs[reg_name].append(ref)
 
-        
     # TODO: polyhedron
     # For now, all refl must be equal
     for ref_name, refs in merged_refs.items():
@@ -84,8 +68,10 @@ def do_memory_mapping_on_topfor(ast, topfor, ref_decl_namespace):
         for ref in refs:
             log.debug(f"{at.ast_to_c(ref):20} RW={at.c_ast_ref_is_rw(ast, ref)}")
             if at.ast_to_c(ref) != at.ast_to_c(refs[0]):
-                raise Exception(f"Unsupported refeence: {at.ast_to_c(ref)} != {at.ast_to_c(refs[0])}")
-    
+                raise Exception(
+                    f"Unsupported reference: {at.ast_to_c(ref)} != {at.ast_to_c(refs[0])}"
+                )
+
     nb_refs = len(merged_refs)
     if nb_refs > 3:
         raise Exception(f"Unsupported number of refs: {nb_refs}")
@@ -95,9 +81,6 @@ def do_memory_mapping_on_topfor(ast, topfor, ref_decl_namespace):
         log.debug(f"{at.ast_to_c(ref):20} RW={at.c_ast_ref_is_rw(ast, ref)}")
         dma_mapping_algo3(ast, refs, i, ref_decl_namespace)
 
-
-from copy import copy
-import polyhedron as poly
 
 def c_ast_to_interval(ref, namespace, intervalbegin0=False):
     """
@@ -137,20 +120,19 @@ def c_ast_to_interval(ref, namespace, intervalbegin0=False):
                 self.visit(n)
             b = self.stack.pop()
             a = self.stack.pop()
-            if node.op == '+':
+            if node.op == "+":
                 interval = a + b
-            elif node.op == '-':
+            elif node.op == "-":
                 interval = a - b
-            elif node.op == '/':
+            elif node.op == "/":
                 interval = a / b
             else:
                 raise Exception(f"Invalid OP {node.op} in {node}")
             # print(f'visit_BinaryOp : push({interval})')
             self.stack.append(interval)
 
-            
         def visit_Constant(self, node):
-            if node.type == 'int':
+            if node.type == "int":
                 v = int(node.value)
                 interval = poly.Interval(0 if intervalbegin0 else v, v)
             else:
@@ -158,12 +140,11 @@ def c_ast_to_interval(ref, namespace, intervalbegin0=False):
             # print(f'visit_Constant : push({interval})')
             self.stack.append(interval)
 
-
     rv = RefVisitor()
     rv.visit(ref)
     interval = rv.stack.pop()
     if rv.stack != []:
-        raise Exception(f"Error during visit: {stack=}")
+        raise Exception(f"Error during visit: {rv.stack=}")
     return interval, rv.depsid
 
 
@@ -182,8 +163,11 @@ def c_ast_ref_to_interval(ref, namespace):
 def c_ast_arraydecl_to_l(decl):
     name, type, asts = at.c_ast_arraydecl_get_l(decl)
     ref_decl_names = [at.ast_to_c(ast) for ast in asts]
-    poly_l = [sympy.parsing.sympy_parser.parse_expr(s, evaluate=True) for s in ref_decl_names]
+    poly_l = [
+        sympy.parsing.sympy_parser.parse_expr(s, evaluate=True) for s in ref_decl_names
+    ]
     return name, asts, poly_l
+
 
 def c_ast_loop_to_interval_name(for_nodes):
     # Comute L ast for all for nodes
@@ -195,6 +179,7 @@ def c_ast_loop_to_interval_name(for_nodes):
 
     return poly_loop
 
+
 def contain_ordered(listin, data):
     if listin == []:
         return True
@@ -205,34 +190,26 @@ def contain_ordered(listin, data):
     else:
         return contain_ordered(listin, data[1:])
 
- # Fake it with poly
-def set_to_1(s): 
-    """Temporary function
-    """
-    v = list(s)
-    res = v.pop()
-    if v != []:
-        raise Exception("Invalid set:", s)
-    return res
-
 
 def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
     """ """
 
     ref = refs[0]
 
-    log.debug(f'========== DMA MAPPING {at.ast_to_c(ref)}')
+    log.debug(f"========== DMA MAPPING {at.ast_to_c(ref)}")
 
     # Analyse Loops
     for_nodes = at.c_ast_get_for_fathers(ast, ref)
     poly_loop = c_ast_loop_to_interval_name(for_nodes)
     poly_loop_namespace = {name: interval for interval, name in poly_loop}
     loops_access_l = [*[interval.area() for interval, _ in poly_loop], 1]
-    loops_access_names = [*[name for _, name in poly_loop], '__SENTINEL__']
+    loops_access_names = [*[name for _, name in poly_loop], "__SENTINEL__"]
 
     # Analyse reference
     ref_is_read, ref_is_write = at.c_ast_ref_is_rw(ast, ref)
-    ref_name, ref_l_ast, poly_ref = c_ast_ref_to_interval(ref, namespace=poly_loop_namespace)
+    ref_name, ref_l_ast, poly_ref = c_ast_ref_to_interval(
+        ref, namespace=poly_loop_namespace
+    )
     poly_ref_deps = [names for _, names in poly_ref]
     poly_ref_all_deps = set(chain(*poly_ref_deps))
     ref_access_names = [at.ast_to_c(ast) for ast in ref_l_ast]
@@ -241,7 +218,6 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
     ref_decl_l = ref_decl_namespace[ref_name]
     ref_decl_l = [1, *list(reversed(ref_decl_l))]
     ref_decl_l_cum = list(np.cumprod(ref_decl_l))
-    
 
     # if 'input' in ref_name:
     #     print("-- no input")
@@ -253,29 +229,31 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
     #     print("-- no out")
     #     return
 
-    def compute_area(ref, poly_loop_namespace_partionned):
+    def compute_area(ref, namespace):
+
         # Compute memory footprint for this namespace
-        _, _, pr = c_ast_ref_to_interval(ref, namespace=poly_loop_namespace_partionned)
+        _, _, pr = c_ast_ref_to_interval(ref, namespace=namespace)
         # Compute poly area
         area = 1
         for ir, (interval, deps) in enumerate(reversed(pr)):
             v = interval.area()
-            if v == 0: # Not a dim in the array
+            if v == 0:  # Not a dim in the array
                 continue
-            if v == 1: # Cst dim
+            if v == 1:  # Cst dim
                 continue
             area *= v
-            ir = len(ref_decl_l_cum) - ir -1 -1
+            ir = len(ref_decl_l_cum) - ir - 1 - 1
             if ir != 0:
                 area *= ref_decl_l_cum[ir]
             break
 
         # eq = f"{v}" + (f"*{ref_decl_l_cum[ir]}" if ir != 0 else "")
-        # log.debug(f"AREA = {area} = {eq}  @ {pr} @ ns={poly_loop_namespace_partionned}")
+        # log.debug(f"AREA = {area} = {eq}  @ {pr} @ ns={namespace}")
         return area
-    
+
     # Compute poly ref area
     from copy import deepcopy
+
     poly_loop_namespace_sparse = deepcopy(poly_loop_namespace)
     loops_ref_access_l_cum = []
     for name in reversed(loops_access_names):
@@ -284,13 +262,18 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
         # Compute poly area
         area = compute_area(ref, poly_loop_namespace_sparse)
         # Append area
-        loops_ref_access_l_cum.insert(0, area) 
-    
+        loops_ref_access_l_cum.insert(0, area)
+
     # Check if area computation is ok
     assert loops_ref_access_l_cum[0] == 1
     assert loops_ref_access_l_cum[-1] == ref_decl_l_cum[-1]
 
-    loops_ref_access_l_ref_expr_dma = [[sympy.parsing.sympy_parser.parse_expr(s, evaluate=False) for s in (ref_access_names)]]
+    loops_ref_access_l_ref_expr_dma = [
+        [
+            sympy.parsing.sympy_parser.parse_expr(s, evaluate=False)
+            for s in (ref_access_names)
+        ]
+    ]
     for name in reversed(loops_access_names):
         # TODO use sympy
         cur_exprs = deepcopy(loops_ref_access_l_ref_expr_dma[-1])
@@ -299,18 +282,22 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
         loops_ref_access_l_ref_expr_dma.append(cur_exprs)
     loops_ref_access_l_ref_expr_dma = list(reversed(loops_ref_access_l_ref_expr_dma))
 
-    loops_ref_access_l_ref_expr_ram = [[sympy.parsing.sympy_parser.parse_expr(s, evaluate=False) for s in (ref_access_names)]]
+    loops_ref_access_l_ref_expr_ram = [
+        [
+            sympy.parsing.sympy_parser.parse_expr(s, evaluate=False)
+            for s in (ref_access_names)
+        ]
+    ]
     for name in loops_access_names:
         cur_exprs = deepcopy(loops_ref_access_l_ref_expr_ram[-1])
         for i, _ in enumerate(cur_exprs):
             cur_exprs[i] = cur_exprs[i].subs(name, 0)
         loops_ref_access_l_ref_expr_ram.append(cur_exprs)
-    
-    
+
     log.debug(f"{ref_name=}")
     log.debug(f"{ref_is_read=}")
     log.debug(f"{ref_is_write=}")
-    log.debug(f"GLOBAL NS")
+    log.debug("GLOBAL NS")
     log.debug(f"  |->{ref_decl_l=}")
     log.debug(f"  '->{ref_decl_l_cum=}")
     log.debug(f"{poly_loop=}")
@@ -321,11 +308,10 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
     log.debug(f"  |->{ref_access_names=}")
     log.debug(f"  |->{poly_ref_deps=}")
     log.debug(f"  |->{poly_ref_all_deps=}")
-    log.debug(f"LOOP X REF")
+    log.debug("LOOP X REF")
     log.debug(f"  `->{loops_ref_access_l_cum=}")
     log.debug(f"  `->{loops_ref_access_l_ref_expr_dma=}")
     log.debug(f"  `->{loops_ref_access_l_ref_expr_ram=}")
-
 
     # Find where insert DMA LD/ST
     IL = 0
@@ -334,7 +320,6 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
     else:
         while DMA_SIZE > loops_ref_access_l_cum[IL]:
             IL += 1
-
 
     # Find how to insert DMA LD/ST
     IR = 0
@@ -350,41 +335,35 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
     log.debug(f"  `->{loops_ref_access_l_cum[IL]=}")
     log.debug(f"  `->{ref_access_names=}")
 
-
     # TODO: Lecture ne correspondant pas aux index direct exemple tab[i+1] (wip)
     # TODO: Partitionnement mémoire. Exemple Toeplitz matrix.
     # https://www.rle.mit.edu/eems/wp-content/uploads/2019/06/Tutorial-on-DNN-04-Kernel-Computations.pdf
     # Slide 25
 
-
-
     def namespace_reduction(poly_loop_namespace, names, div_name, div_blocks):
         # Compute namespace
-        poly_loop_namespace_partionned = deepcopy(poly_loop_namespace)
+        namespace = deepcopy(poly_loop_namespace)
         for name in reversed(names):
             if name == div_name:
-                poly_loop_namespace_partionned[name] = poly.Interval(0, div_blocks)
-                return poly_loop_namespace_partionned
+                namespace[name] = poly.Interval(0, div_blocks)
+                return namespace
             else:
-                poly_loop_namespace_partionned[name] = poly.Interval(0, 0)
+                namespace[name] = poly.Interval(0, 0)
         raise Exception(f"{div_name} not in {names}")
 
     # IL configuration
-    il_repeat = loops_access_l[IL-1]
-    il_name = loops_access_names[IL-1]
-    il_subsize = loops_ref_access_l_cum[IL-1]
-    # assert for_nodes[IL-1].init.decls[0].name == il_name
+    il_repeat = loops_access_l[IL - 1]
+    il_name = loops_access_names[IL - 1]
+    il_subsize = loops_ref_access_l_cum[IL - 1]
+    log.debug(f"Repeat {il_repeat} times the loop '{il_name}' #{il_subsize}")
 
-    log.debug(f"we have to repeat {il_repeat} time the loop '{il_name}' of size {il_subsize}")
     # Find the best division
     # TODO: Algo: binary search for perfs
     # Compute new loop poly
-    for block_size in reversed(range(1, il_repeat+1)):
+    for block_size in reversed(range(1, il_repeat + 1)):
         poly_loop_namespace_partionned = namespace_reduction(
-            poly_loop_namespace,
-            loops_access_names, 
-            il_name, 
-            block_size)
+            poly_loop_namespace, loops_access_names, il_name, block_size
+        )
         area = compute_area(ref, poly_loop_namespace_partionned)
         # log.debug(f"{block_size=} @ ns = {poly_loop_namespace_partionned} -> {area=}")
         # Is area valid AND is multiplicity ok ? and nb_repeat_residual == 0
@@ -393,7 +372,6 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
 
     log.debug(f"HIT : {block_size=} @ ns = {poly_loop_namespace_partionned} -> {area=}")
     assert area <= DMA_SIZE
-
 
     # Number of repeat for this configuration
     nb_repeat_int = block_size
@@ -404,19 +382,24 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
     nb_repeat_block = floor(il_repeat / block_size)
 
     if nb_repeat_residual:
-        poly_loop_namespace_residual = namespace_reduction(
-            poly_loop_namespace,
-            loops_access_names, 
-            il_name, 
-            nb_repeat_residual)
-        dma_transfer_size_residual = compute_area(ref, poly_loop_namespace_residual)
+        namespace_residual = namespace_reduction(
+            poly_loop_namespace, loops_access_names, il_name, nb_repeat_residual
+        )
+        dma_transfer_size_residual = compute_area(ref, namespace_residual)
     else:
         dma_transfer_size_residual = 1010101010
 
-    log.debug(f" ===> DMA OPS: {nb_repeat_int}->{dma_transfer_size} & {nb_repeat_residual}->{dma_transfer_size_residual}")
-    log.debug(f" ===> DMA OPS: {nb_repeat_block} x {dma_transfer_size} + {nb_repeat_residual>0} x {dma_transfer_size_residual}")
+    log.debug(
+        f" ===> DMA OPS: {nb_repeat_int}->{dma_transfer_size} & {nb_repeat_residual}->{dma_transfer_size_residual}"
+    )
+    log.debug(
+        f" ===> DMA OPS: {nb_repeat_block} x {dma_transfer_size} + {nb_repeat_residual>0} x {dma_transfer_size_residual}"
+    )
 
-    stats_dma_ops = nb_repeat_block*dma_transfer_size + (nb_repeat_residual>0)*dma_transfer_size_residual
+    stats_dma_ops = (
+        nb_repeat_block * dma_transfer_size
+        + (nb_repeat_residual > 0) * dma_transfer_size_residual
+    )
     log.debug(f"Nuber of bytes loaded/stored = {stats_dma_ops}")
 
     # DMA configuration
@@ -432,34 +415,44 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
     if IL == -1:
         topcomp = super_top_comp
     else:
-        topcomp = for_nodes[IL-1].stmt
+        topcomp = for_nodes[IL - 1].stmt
 
     if not topcomp:
         raise Exception(f"No {topcomp=} @ {IL=}")
-    
+
     # Compute
-    if IR == -1: # Array < DMA
-        log.debug('--- WRAP MODE')
+    if IR == -1:  # Array < DMA
+        log.debug("--- WRAP MODE")
         # Compute memory mapping
         dma_transfer_size = ref_decl_l_cum[-1]
         dma_transfer_size_eff = dma_transfer_size
         mapping_ram_name = ref_name
         # Insert transactions
-        topcomp.block_items.insert(0, stmt_c_to_ast(f"int {size_name} = {dma_transfer_size};"))
-        topcomp.block_items.insert(1, stmt_c_to_ast(f'void * {adr_name} = {mapping_ram_name};'))
+        topcomp.block_items.insert(
+            0, stmt_c_to_ast(f"int {size_name} = {dma_transfer_size};")
+        )
+        topcomp.block_items.insert(
+            1, stmt_c_to_ast(f"void * {adr_name} = {mapping_ram_name};")
+        )
         if ref_is_read:  # insert LD
-            topcomp.block_items.insert(2, expr_c_to_ast(Gencode.cgen_dma_ld(*cgen_dma_args)))
+            topcomp.block_items.insert(
+                2, expr_c_to_ast(Gencode.cgen_dma_ld(*cgen_dma_args))
+            )
         if ref_is_write:  # Insert ST
-            topcomp.block_items.append(expr_c_to_ast(Gencode.cgen_dma_st(*cgen_dma_args)))
+            topcomp.block_items.append(
+                expr_c_to_ast(Gencode.cgen_dma_st(*cgen_dma_args))
+            )
         # Update ref
         buff_adr = Gencode.cgen_static_mac(ref_access_names, ref_decl_l_cum[0:-1])
         ast_buff = expr_c_to_ast(f"{buffer_name}[{buff_adr}]")
         for ref in refs:
             at.c_ast_ref_update(ref, ast_buff.name, ast_buff.subscript)
-        
+
     else:
         # replace ref@ -> dma@
-        new_ref_expr_dma = [e.subs(il_name, iter_name) for e in loops_ref_access_l_ref_expr_dma[IL]]
+        new_ref_expr_dma = [
+            e.subs(il_name, iter_name) for e in loops_ref_access_l_ref_expr_dma[IL]
+        ]
         buff_adr = Gencode.cgen_static_mac(new_ref_expr_dma, ref_decl_l_cum)
         mapping_dma_name = f"{buffer_name}[{buff_adr}]"
         ast_buff = expr_c_to_ast(mapping_dma_name)
@@ -467,21 +460,26 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
             at.c_ast_ref_update(ref, ast_buff.name, ast_buff.subscript)
 
         # Compute base ref@
-        rn = loops_ref_access_l_ref_expr_ram[IL-1]
+        rn = loops_ref_access_l_ref_expr_ram[IL - 1]
         mapping_ram_name = ref_name + "".join(reversed(list((f"[{i}]" for i in rn))))
 
         log.debug(f"  --> {mapping_dma_name=}")
         log.debug(f"  --> {mapping_ram_name=}")
 
-
         # New variables
-        super_top_comp.block_items.insert(0, stmt_c_to_ast(f'void * {adr_name} = (char*)0xdeadc0de;'))
-        super_top_comp.block_items.insert(0, stmt_c_to_ast(f"int {size_name} = 0xdeadc0de;"))
-        super_top_comp.block_items.insert(0, stmt_c_to_ast(f"int {iter_name} = 0xdeadc0de;"))
-        
+        super_top_comp.block_items.insert(
+            0, stmt_c_to_ast(f"void * {adr_name} = (char*)0xdeadc0de;")
+        )
+        super_top_comp.block_items.insert(
+            0, stmt_c_to_ast(f"int {size_name} = 0xdeadc0de;")
+        )
+        super_top_comp.block_items.insert(
+            0, stmt_c_to_ast(f"int {iter_name} = 0xdeadc0de;")
+        )
+
         # Code generation
         stmts = []
-    
+
         if nb_repeat_residual:
             size = f"{il_name} != {nb_repeat_block} * {block_size} ? {dma_transfer_size} : {dma_transfer_size_residual}"
             # size = f"MIN({dma_transfer_size}, ({il_repeat}-{il_name})*{loops_ref_access_l_cum[IL-1]})"
@@ -489,34 +487,46 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
             size = str(dma_transfer_size)
 
         # Set variables
-        stmts.append(stmt_c_to_ast(f"if ({il_name} % {nb_repeat_int} == 0) {{{iter_name} = 0; {size_name} = {size}; {adr_name} = {'&' + mapping_ram_name};}}"))
-        
+        stmts.append(
+            stmt_c_to_ast(
+                f"if ({il_name} % {nb_repeat_int} == 0) {{{iter_name} = 0; {size_name} = {size}; {adr_name} = {'&' + mapping_ram_name};}}"
+            )
+        )
+
         # Load
         if ref_is_read:
-            stmts.append(stmt_c_to_ast(f"if ({il_name} % {nb_repeat_int} == 0) {{{Gencode.cgen_dma_ld(*cgen_dma_args)};}}"))
-        
+            stmts.append(
+                stmt_c_to_ast(
+                    f"if ({il_name} % {nb_repeat_int} == 0) {{{Gencode.cgen_dma_ld(*cgen_dma_args)};}}"
+                )
+            )
+
         # Old statements
         for stmt in topcomp.block_items:
             stmts.append(stmt)
 
         # Local increment
-        stmts.append(stmt_c_to_ast(f'{iter_name}++;'))
+        stmts.append(stmt_c_to_ast(f"{iter_name}++;"))
 
         # Store
         if ref_is_write:
-            stmts.append(stmt_c_to_ast(f"if ({il_name} % {nb_repeat_int} == {nb_repeat_int}-1 || {il_name} == {il_repeat}-1) {{{Gencode.cgen_dma_st(*cgen_dma_args)};}}"))
+            stmts.append(
+                stmt_c_to_ast(
+                    f"if ({il_name} % {nb_repeat_int} == {nb_repeat_int}-1 || {il_name} == {il_repeat}-1) {{{Gencode.cgen_dma_st(*cgen_dma_args)};}}"
+                )
+            )
 
         topcomp.block_items = stmts
-    
+
     dma_efficiency = dma_transfer_size / DMA_SIZE
     log.debug(f"             {DMA_SIZE=}")
     log.debug(f"    {dma_transfer_size=}")
     log.debug(f"{dma_transfer_size_eff=}")
-    efficiency = dma_transfer_size_eff/dma_transfer_size
+    efficiency = dma_transfer_size_eff / dma_transfer_size
     log.debug(f" ------>      DMA USAGE = {dma_transfer_size/DMA_SIZE*100}%")
     log.debug(f" ------> DMA EFFICIENCY = {efficiency*100}%")
     EFF_THRESHOLD = 0.1
-    if (efficiency < EFF_THRESHOLD): # less than 1 ochet used for 10 loaded from memory
+    if efficiency < EFF_THRESHOLD:  # less than 1 ochet used for 10 loaded
         log.warning(f"!!! {efficiency=} < {EFF_THRESHOLD} !!! You must do coalescing")
     log.debug(at.ast_to_c_highlight(ast))
     return dma_efficiency

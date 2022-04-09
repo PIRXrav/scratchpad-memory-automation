@@ -1,4 +1,3 @@
-
 from pycparser import parse_file, c_generator, CParser
 from pycparser import c_ast
 from pycparser import plyparser
@@ -7,10 +6,10 @@ from pygments import highlight
 from pygments.lexers import CLexer
 from pygments.formatters import TerminalFormatter
 
-import numpy as np
 
 def file_to_ast(file, use_cpp=True):
     return parse_file(file, use_cpp=True)
+
 
 def c_to_ast(code):
     try:
@@ -20,6 +19,7 @@ def c_to_ast(code):
         print("Error Gencode; invalid code:")
         print(c_highlight(code))
         raise
+
 
 def compound_c_to_ast(code):
     try:
@@ -64,13 +64,12 @@ def ast_to_c(ast):
 
 
 def ast_to_c_highlight(ast):
-    return highlight(
-        ast_to_c(ast), CLexer(), TerminalFormatter(bg="dark", linenos=True)
-    )
+    return c_highlight(ast_to_c(ast))
 
 
 def c_highlight(code):
-    return highlight(code, CLexer(), TerminalFormatter(bg="dark", linenos=True))
+    formatter = TerminalFormatter(bg="dark", linenos=True)
+    return highlight(code, CLexer(), formatter)
 
 
 def c_ast_for_get_l(node):
@@ -81,10 +80,10 @@ def c_ast_for_get_l(node):
         assert len(node.init.decls) == 1
         assert node.cond.op == "<"
         assert node.cond.left.name == var_loop_name
-        assert node.next.op == 'p++'
+        assert node.next.op == "p++"
         assert node.next.expr.name == var_loop_name
         return (var_loop_name, node.init.decls[0].init, node.cond.right)
-    except:
+    except Exception:
         print("Invalid for:")
         print(ast_to_c_highlight(node))
         raise
@@ -153,10 +152,10 @@ def c_ast_get_upper_node(ast, node):
 
 
 def c_ast_constant_to_int(node):
-    if node.type == 'int':
+    if node.type == "int":
         return int(node.value)
     else:
-        raise Exception(f'Invalid node {node}')
+        raise Exception(f"Invalid node {node}")
 
 
 def c_ast_arraydecl_get_l(decl):
@@ -216,8 +215,8 @@ def c_ast_arraydecl_get_l(decl):
 
     v = ArrayDeclVisitor()
     v.visit(decl)
-    assert v.name != None
-    assert v.type != None
+    assert v.name is not None
+    assert v.type is not None
     return v.name, v.type, v.dims
 
 
@@ -319,8 +318,7 @@ def c_ast_ref_is_rw(ast, ref):
 
 
 def delc_to_ptr_decl(decl):
-    """Convert a decl to a pointer of the same type
-    """
+    """Convert a decl to a pointer of the same type"""
     if decl.type.__class__ == c_ast.ArrayDecl:
         decl.type = c_ast.PtrDecl([], decl.type.type)
     else:
@@ -328,12 +326,15 @@ def delc_to_ptr_decl(decl):
     # print(c_to_ast('int (*tab)[N];'))
     return decl
 
+
 def fun_get_name(fun):
     return fun.decl.name
+
 
 def fun_set_name(fun, name):
     fun.decl.type.type.declname = name
     fun.decl.name = name
+
 
 def c_ast_ref_update(ref, name, subscript):
     ref.name = name

@@ -1,36 +1,36 @@
+"""SMA unit tests
+"""
 
-import logging as log
 import logging
-from colorlog import ColoredFormatter
+import subprocess
+from kernelgenerator import Kernel, kernel_compute_name
+import filecmp
+from asttools import c_highlight
+import unittest
+from ddt import ddt, data
+from functools import wraps
+from time import time
+from itertools import product
 
 DEBUG_MODE = 1
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     LOG_LEVEL = logging.DEBUG
 else:
     LOG_LEVEL = logging.ERROR
     DEBUG_MODE = 0
 
-LOGFORMAT = "  %(log_color)s%(levelname)-8s%(reset)s | %(log_color)s%(message)s%(reset)s"
+LOGFORMAT = (
+    "%(log_color)s%(levelname)-8s%(reset)s | %(log_color)s%(message)s%(reset)s"
+)
 
 logging.basicConfig(
     level=LOG_LEVEL,
     format="%(levelname)-8s %(filename)-16s:%(lineno)-4d>> %(message)s",
-    handlers=[
-        logging.StreamHandler()
-    ]
+    handlers=[logging.StreamHandler()],
 )
 
 log = logging.getLogger()
-
-from isort import file
-import subprocess
-from kernelgenerator import Kernel, kernel_compute_name
-import filecmp
-from asttools import c_highlight
-import sys
-import unittest
-from ddt import ddt, data
 
 PREFIX = "/tmp/"
 SMA_SOURCE = PREFIX + "sma_source.c"
@@ -41,25 +41,27 @@ CFLAGS = "-Wall -Wextra -Werror -Idmasimulator -g -O1"
 LDFLAGS = ""
 
 
-from functools import wraps
-from time import time
-
-
 timing_stack = []
-def timing(f):
-    @wraps(f)
+
+
+def timing(func):
+    """Measure elapsed time"""
+
+    @wraps(func)
     def wrap(*args, **kw):
         global timing_stack
         ts = time()
-        result = f(*args, **kw)
+        result = func(*args, **kw)
         te = time()
-        timing_stack.append(f'func:{f.__name__:>20} took: {int((te-ts)*1000):>8} ms')
-        # log.info(f'func:{f.__name__} args:[{args}, {kw}] took: %{te-ts} sec')
+        elapsed = int((te - ts) * 1000)
+        timing_stack.append(f"func:{func.__name__:>20} took: {elapsed:>8} ms")
         return result
-    return wrap if DEBUG_MODE else f
+
+    return wrap if DEBUG_MODE else func
 
 
 def timing_dump():
+    """Display results of timing func"""
     global timing_stack
     for s in timing_stack:
         log.info(s)
@@ -67,11 +69,13 @@ def timing_dump():
 
 
 def write_file(filename, code):
+    """write file filename with code as data"""
     with open(filename, "w") as f:
         f.write(code)
 
 
 def shell(cmd, verbose=False):
+    """Shell cmd wrapper"""
     if verbose:
         print(cmd)
     res = subprocess.check_output(cmd, shell=True)
@@ -79,7 +83,10 @@ def shell(cmd, verbose=False):
         print(res)
 
 
-def test_kernel(kernel_name, config, do_mem_mapping=True):
+def bench_kernel(kernel_name, config, do_mem_mapping=True):
+    """Benchmark a kernel
+    TODO: in module Kernel
+    """
 
     @timing
     def generate(kernel_name, config):
@@ -106,21 +113,22 @@ def test_kernel(kernel_name, config, do_mem_mapping=True):
         write_file(cname, ccode)
         write_file(gdbname, gdbcode)
         return hname, cname, gdbname
-    
+
     @timing
     def build(cnames, binname):
-        cmd = f"{CC} {CFLAGS} {LDFLAGS} {' '.join(cnames)} -I{PREFIX} -o {binname}"
+        files = ' '.join(cnames)
+        cmd = f"{CC} {CFLAGS} {LDFLAGS} {files} -I{PREFIX} -o {binname}"
         ret = shell(cmd)
         return ret
-    
+
     @timing
     def run_simu(gdbname, binname):
         # Run
         cmd = f"gdb --batch --command={gdbname} --args {binname}"
         ret = shell(cmd)
         shell(f'wc -c {" ".join(dumpfiles)}')
-        return dumpfiles
-    
+        return dumpfiles, ret
+
     binname = PREFIX + "sma_bin" + ("_mem_mapping" if do_mem_mapping else "")
     files_plus_code, dumpfiles = generate(kernel_name, config)
     hname, cname, gdbname = write_files(*files_plus_code)
@@ -129,39 +137,39 @@ def test_kernel(kernel_name, config, do_mem_mapping=True):
     return dumpfiles
 
 
-
 def validation_kernel(kernel_name, config):
+    """Run kernel with and without dma mapping. Then compare the memory of the
+    programmes with gdb
+    """
     log.info(f"KERNEL validation: {kernel_name} {config}")
     files = [
-        test_kernel(kernel_name, config, do_mem_mapping=test) for test in (False, True)
+        bench_kernel(kernel_name, config, do_mem_mapping=tf)
+        for tf in (False, True)
     ]
     total_diff = 0
     for ff in zip(*tuple(files)):
-        eq = filecmp.cmp(*ff)   
+        eq = filecmp.cmp(*ff)
         total_diff += not eq
         log.debug(f'{ff[0]} and {ff[1]} {"are equals" if eq else "differ"}')
 
     return total_diff
 
 
-
-
-from itertools import product
-
 CONF_1D_04 = (2, 7, 8, 31, 32, 111, 1000, 1024)
 CONF_1D_CONF_11 = (2, 4, 8, 10, 20, 50, 256, 400, 1024, 2000, 2048)
 
-CONF_2D_04_04 =  product(CONF_1D_04, CONF_1D_04)
-M_N_BENCHMARK = [{'M': m, 'N': n} for m, n in CONF_2D_04_04]
+CONF_2D_04_04 = product(CONF_1D_04, CONF_1D_04)
+M_N_BENCHMARK = [{"M": m, "N": n} for m, n in CONF_2D_04_04]
 
 
 BIG_BENCHMARK = {name: M_N_BENCHMARK for name in ("set1", "copy", "gemv")}
 
 
-
 RNG_1D = (5, 8, 32, 64, 255, 256)
-CFG_X_Y_DKX_DKY = [{'X': x, 'Y': y, 'DKX': dkx, 'DKY': dky} for x, y, dkx, dky 
-                    in product(RNG_1D, RNG_1D, (1, 3), (3, 4))]
+CFG_X_Y_DKX_DKY = [
+    {"X": x, "Y": y, "DKX": dkx, "DKY": dky}
+    for x, y, dkx, dky in product(RNG_1D, RNG_1D, (1, 3), (3, 4))
+]
 
 
 def gen_bench(bench):
@@ -178,7 +186,7 @@ def ddt_bench(bench):
         r = WrapList([*kv])
         setattr(r, "__name__", kernel_compute_name(*kv))
         return r
-        
+
     return tuple(map(annotated, bench))
 
 
@@ -193,10 +201,10 @@ class TestKernels(unittest.TestCase):
         self.assertFalse(validation_kernel(*args))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # validation_kernel('conv2d', {'X': 256, 'Y': 8, 'DKX': 3, 'DKY': 3})
     # validation_kernel('conv2d', {'X': 32, 'Y': 8, 'DKX': 1, 'DKY': 4})
     # validation_kernel('set1', {'M': 200, 'N': 2})
     # X64_Y5_DKX1_DKY4
-    validation_kernel("set10", {'N': 32})
+    validation_kernel("set10", {"N": 32})
     timing_dump()

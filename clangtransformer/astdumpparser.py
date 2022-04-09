@@ -1,5 +1,4 @@
-from pprint import pprint 
-from colorama import Fore, Back, Style
+from colorama import Fore, Style
 
 NL = '\n'
 QUALTYPE = 'qualType'
@@ -8,6 +7,7 @@ QUALTYPE = 'qualType'
 class Node:
 
     inner = []
+
     def show(self, prefix):
         classs_raw = self.__class__.__name__
         classs_color = Fore.RED
@@ -504,7 +504,7 @@ def json_to_ast(json_node):
 
             except NameError:
                 args = ", ".join(map(lambda k: f'{k}=None', keys))
-                print(f'class {self_class}(Node):')
+                print(f'class {0}(Node):')
                 print(f'    def __init__(self, {args}):')
                 for key in keys:
                     print(f'        self.{key} = {key}')

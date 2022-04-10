@@ -2,7 +2,6 @@
 """
 
 import logging
-import subprocess
 from kernelgenerator import Kernel, kernel_compute_name
 import filecmp
 from asttools import c_highlight
@@ -11,6 +10,8 @@ from ddt import ddt, data
 from functools import wraps
 from time import time
 from itertools import product
+
+import toolchain as tc
 
 DEBUG_MODE = 1
 
@@ -68,21 +69,6 @@ def timing_dump():
     timing_stack = []
 
 
-def write_file(filename, code):
-    """write file filename with code as data"""
-    with open(filename, "w") as f:
-        f.write(code)
-
-
-def shell(cmd, verbose=False):
-    """Shell cmd wrapper"""
-    if verbose:
-        print(cmd)
-    res = subprocess.check_output(cmd, shell=True)
-    if verbose:
-        print(res)
-
-
 def bench_kernel(kernel_name, config, do_mem_mapping=True):
     """Benchmark a kernel
     TODO: in module Kernel
@@ -109,24 +95,24 @@ def bench_kernel(kernel_name, config, do_mem_mapping=True):
         hname = PREFIX + hname
         cname = PREFIX + cname
         gdbname = PREFIX + gdbname
-        write_file(hname, hcode)
-        write_file(cname, ccode)
-        write_file(gdbname, gdbcode)
+        tc.write_file(hname, hcode)
+        tc.write_file(cname, ccode)
+        tc.write_file(gdbname, gdbcode)
         return hname, cname, gdbname
 
     @timing
     def build(cnames, binname):
         files = ' '.join(cnames)
         cmd = f"{CC} {CFLAGS} {LDFLAGS} {files} -I{PREFIX} -o {binname}"
-        ret = shell(cmd)
+        ret = tc.shell(cmd)
         return ret
 
     @timing
     def run_simu(gdbname, binname):
         # Run
         cmd = f"gdb --batch --command={gdbname} --args {binname}"
-        ret = shell(cmd)
-        shell(f'wc -c {" ".join(dumpfiles)}')
+        ret = tc.shell(cmd)
+        tc.shell(f'wc -c {" ".join(dumpfiles)}')
         return dumpfiles, ret
 
     binname = PREFIX + "sma_bin" + ("_mem_mapping" if do_mem_mapping else "")

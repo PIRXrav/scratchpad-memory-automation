@@ -19,28 +19,8 @@ import os
 import datetime
 import sys
 
-
-def comment_header(title, **kwargs):
-    ident = lambda s: s.replace("\n", "\n" + (" " * 10 + " | "))
-    comment = lambda s: " * " + s.replace("\n", "\n * ")
-    raw = "\n".join((f"{k:>10} : {ident(str(v))}" for k, v in kwargs.items()))
-    return f"/**{title}\n *\n" + comment(raw) + "\n *\n */\n\n"
-
-
-def cppcode(code, config):
-    """Preprocess source code with config defined"""
-    tmpf = "/tmp/sma_cppcode"
-    with open(tmpf, "w") as f:
-        f.write(code)
-    cpp_defines = " ".join(map(lambda c: f"-D{c[0]}={c[1]}", config.items()))
-    return check_output(
-        f"cpp -P {cpp_defines} {tmpf}", shell=True, universal_newlines=True
-    )
-
-
-def clean_string(s):
-    return s.rstrip(" \n\r")
-
+import toolchain as tc
+import ctools
 
 def path_of_kernel(kernel_name):
     return f"kernels/{kernel_name}.c"
@@ -74,7 +54,7 @@ class Kernel:
                             f"Malformed file: section is {current_section} but should be {expected_section}"
                         )
                 else:
-                    if clean_string(line) != "":
+                    if line.rstrip(" \n\r") != "":
                         self.sections[current_section] += line
 
         # Get config
@@ -92,7 +72,7 @@ class Kernel:
 
         # Key area
         self.sectionspp = {
-            k: cppcode(self.sections[k], self.config) for k in KERNEL_CODE_SEC
+            k: tc.cpp(self.sections[k], self.config) for k in KERNEL_CODE_SEC
         }
         self.sectionsast = {k: c_to_ast(code) for k, code in self.sectionspp.items()}
         self.fun = self.sectionsast["FUN"].ext[0]
@@ -145,7 +125,7 @@ class Kernel:
         fun_name = fun_get_name(self.fun)
         filename = fun_name + ".h"
         code = ""
-        code += comment_header(
+        code += ctools.comment_header(
             f" GENERATED FILE: {filename}",
             Generator=os.path.basename(__file__),
             Function=fun_name,
@@ -180,7 +160,7 @@ class Kernel:
         argpp = self.sectionspp["ARG"]
         filename = fun_name + ".c"
         code = ""
-        code += comment_header(
+        code += ctools.comment_header(
             f" GENERATED FILE: {filename}",
             Generator=os.path.basename(__file__),
             Benchark=fun_name,
@@ -190,32 +170,32 @@ class Kernel:
             **self.config,
         )
         code += f'#include "{fun_name}.h"\n'
-        code += f"#include <stdio.h>\n"
-        code += f"#include <stdint.h>\n"
+        code += "#include <stdio.h>\n"
+        code += "#include <stdint.h>\n"
         code += argpp
-        code += f"void postbench(void){{\n"
-        code += f"    int64_t hash = 0;\n"
+        code += "void postbench(void){{\n"
+        code += "    int64_t hash = 0;\n"
         for dn in decl_names:
             code += f"    for (size_t i = 0; i < sizeof({dn}); i++) {{hash += *((unsigned char*){dn}+i);}}\n"
-        code += f'    printf("%ld\\n", hash);\n'
-        code += f"}}\n"
-        code += f"void prebench(void){{\n"
+        code += '    printf("%ld\\n", hash);\n'
+        code += "}}\n"
+        code += "void prebench(void){{\n"
         for dn in decl_names:
             code += f"    for (size_t i = 0; i < sizeof({dn}); i++) {{*((char*){dn}+i) = (char)i;}}\n"
-        code += f"}}\n"
-        code += f"int main(void){{\n"
+        code += "}}\n"
+        code += "int main(void){{\n"
         code += f'    printf("Run benchmark {fun_name}\\n");\n'
-        code += f"    /* prebench */\n"
-        code += f'    printf("prebench ...\\n");\n'
-        code += f"    prebench();"
-        code += f"    /* Run */\n"
-        code += f'    printf("Run ...\\n");\n'
+        code += "    /* prebench */\n"
+        code += '    printf("prebench ...\\n");\n'
+        code += "    prebench();"
+        code += "    /* Run */\n"
+        code += '    printf("Run ...\\n");\n'
         code += f'    {fun_name}({", ".join(decl_names)});\n'
-        code += f"    /* postbench */\n"
-        code += f'    printf("postbench ...\\n");\n'
-        code += f"    postbench();"
-        code += f"    return 0;"
-        code += f"}}\n"
+        code += "    /* postbench */\n"
+        code += '    printf("postbench ...\\n");\n'
+        code += "    postbench();"
+        code += "    return 0;"
+        code += "}}\n"
         return filename, code
 
     def __str__(self):

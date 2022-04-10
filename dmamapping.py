@@ -390,16 +390,16 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
         dma_transfer_size_residual = 1010101010
 
     log.debug(
-        f" ===> DMA OPS: {nb_repeat_int}->{dma_transfer_size} & {nb_repeat_residual}->{dma_transfer_size_residual}"
+        f" ===> DMA OPS: {nb_repeat_int}->{dma_transfer_size}"
+        f" & {nb_repeat_residual}->{dma_transfer_size_residual}"
     )
     log.debug(
-        f" ===> DMA OPS: {nb_repeat_block} x {dma_transfer_size} + {nb_repeat_residual>0} x {dma_transfer_size_residual}"
+        f" ===> DMA OPS: {nb_repeat_block} x {dma_transfer_size}"
+        f" + {nb_repeat_residual>0} x {dma_transfer_size_residual}"
     )
 
-    stats_dma_ops = (
-        nb_repeat_block * dma_transfer_size
-        + (nb_repeat_residual > 0) * dma_transfer_size_residual
-    )
+    stats_dma_ops = nb_repeat_block * dma_transfer_size
+    stats_dma_ops += (nb_repeat_residual > 0) * dma_transfer_size_residual
     log.debug(f"Nuber of bytes loaded/stored = {stats_dma_ops}")
 
     # DMA configuration
@@ -481,7 +481,9 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
         stmts = []
 
         if nb_repeat_residual:
-            size = f"{il_name} != {nb_repeat_block} * {block_size} ? {dma_transfer_size} : {dma_transfer_size_residual}"
+            size = f"""{il_name} != {nb_repeat_block} * {block_size}
+                    ? {dma_transfer_size}
+                    : {dma_transfer_size_residual}"""
             # size = f"MIN({dma_transfer_size}, ({il_repeat}-{il_name})*{loops_ref_access_l_cum[IL-1]})"
         else:
             size = str(dma_transfer_size)
@@ -489,7 +491,10 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
         # Set variables
         stmts.append(
             stmt_c_to_ast(
-                f"if ({il_name} % {nb_repeat_int} == 0) {{{iter_name} = 0; {size_name} = {size}; {adr_name} = {'&' + mapping_ram_name};}}"
+                f"""if ({il_name} % {nb_repeat_int} == 0) {{
+                        {iter_name} = 0; {size_name} = {size};
+                        {adr_name} = {'&' + mapping_ram_name};
+                    }}"""
             )
         )
 
@@ -512,7 +517,9 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
         if ref_is_write:
             stmts.append(
                 stmt_c_to_ast(
-                    f"if ({il_name} % {nb_repeat_int} == {nb_repeat_int}-1 || {il_name} == {il_repeat}-1) {{{Gencode.cgen_dma_st(*cgen_dma_args)};}}"
+                    f"""if ({il_name} % {nb_repeat_int} == {nb_repeat_int}-1 || {il_name} == {il_repeat}-1) {{
+                        {Gencode.cgen_dma_st(*cgen_dma_args)};
+                    }}"""
                 )
             )
 

@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  test_kernels:
+  kernels:
 
     runs-on: ubuntu-latest
 
@@ -54,4 +54,8 @@ jobs:
 
     - name: Test with pytest
       run: |
-        coverage run -m pytest test.py -v
+        coverage run -m pytest test.py
+
+    - name: Coverage report
+      run: |
+        coverage report

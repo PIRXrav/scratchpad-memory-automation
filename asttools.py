@@ -339,3 +339,33 @@ def fun_set_name(fun, name):
 def c_ast_ref_update(ref, name, subscript):
     ref.name = name
     ref.subscript = subscript
+
+
+def c_ast_get_all_id(ast):
+    """Return all idendifiers ID(name='')"""
+    class IDVisitor(c_ast.NodeVisitor):
+        def __init__(self):
+            self.res = []
+
+        def visit_ID(self, node):
+            self.res.append(node)
+
+    nv = IDVisitor()
+    nv.visit(ast)
+    return nv.res
+
+def c_ast_get_all_id_by_name(name, ast):
+    """Return all idendifiers filtered by name ID(name='')"""
+    return filter(lambda node: node.name == name, c_ast_get_all_id(ast))
+
+
+def test_c_ast_get_all_id():
+    ast = stmt_c_to_ast('for(int n = 0; n < 10; n++) {n = x + n;}')
+    # print(ast_to_c(ast))
+    idnodes = list(c_ast_get_all_id_by_name('n', ast))
+    #  print(idnodes)
+    assert len(idnodes) == 4
+
+
+if __name__ == '__main__':
+    test_c_ast_get_all_id()

@@ -6,6 +6,9 @@ from pygments import highlight
 from pygments.lexers import CLexer
 from pygments.formatters import TerminalFormatter
 
+from itertools import chain
+from more_itertools import one
+from copy import deepcopy
 
 def file_to_ast(file, use_cpp=True):
     return parse_file(file, use_cpp=True)
@@ -323,7 +326,6 @@ def delc_to_ptr_decl(decl):
         decl.type = c_ast.PtrDecl([], decl.type.type)
     else:
         raise Exception(f"Unimplemented type: {decl.type}")
-    # print(c_to_ast('int (*tab)[N];'))
     return decl
 
 
@@ -354,18 +356,129 @@ def c_ast_get_all_id(ast):
     nv.visit(ast)
     return nv.res
 
-def c_ast_get_all_id_by_name(name, ast):
+def c_ast_get_all_id_by_name(ast, name):
     """Return all idendifiers filtered by name ID(name='')"""
     return filter(lambda node: node.name == name, c_ast_get_all_id(ast))
 
 
+def c_ast_for_update_name(fornode, name):
+    """
+    For(init=DeclList(decls=[Decl(name='x',
+                              quals=[
+                                    ],
+                              align=[
+                                    ],
+                              storage=[
+                                      ],
+                              funcspec=[
+                                       ],
+                              type=TypeDecl(declname='x',
+                                            quals=[
+                                                  ],
+                                            align=None,
+                                            type=IdentifierType(names=['int'
+                                                                      ]
+                                                                )
+                                            ),
+                              init=Constant(type='int',
+                                            value='0'
+                                            ),
+                              bitsize=None
+                              )
+                        ]
+                  ),
+    cond=BinaryOp(op='<',
+                  left=ID(name='x'
+                          ),
+                  right=BinaryOp(op='+',
+                                 left=BinaryOp(op='-',
+                                               left=Constant(type='int',
+                                                             value='256'
+                                                             ),
+                                               right=Constant(type='int',
+                                                              value='3'
+                                                              )
+                                               ),
+                                 right=Constant(type='int',
+                                                value='1'
+                                                )
+                                 )
+                  ),
+    next=UnaryOp(op='p++',
+                 expr=ID(name='x'
+                         )
+                 ),
+    """
+    fornode.init.decls[0].name = name
+    fornode.init.decls[0].type.declname = name
+    for idnode in chain(*map(c_ast_get_all_id, [fornode.cond, fornode.next])):
+        idnode.name = name
+
+
+def c_ast_for_update_l(fornode, astl):
+    """
+    cond=BinaryOp(op='<',
+                  left=ID(name='x'
+                          ),
+                  right=BinaryOp(op='+',
+                                 left=BinaryOp(op='-',
+                                               left=Constant(type='int',
+                                                             value='256'
+                                                             ),
+                                               right=Constant(type='int',
+                                                              value='3'
+                                                              )
+                                               ),
+                                 right=Constant(type='int',
+                                                value='1'
+                                                )
+                                 )
+    """
+    fornode.cond.right = astl
+
+
 def test_c_ast_get_all_id():
-    ast = stmt_c_to_ast('for(int n = 0; n < 10; n++) {n = x + n;}')
-    # print(ast_to_c(ast))
-    idnodes = list(c_ast_get_all_id_by_name('n', ast))
-    #  print(idnodes)
+    ast = stmt_c_to_ast('for(int n = 0; n < 10; n++) {n = x + n; x += x * 2;}')
+    idnodes = list(c_ast_get_all_id_by_name(ast, 'n'))
     assert len(idnodes) == 4
+
+
+def c_ast_replace_id(ast, name, new_ast):
+    """Replace ids"""
+    class ReplaceVisitor(c_ast.NodeVisitor):
+        def __init__(self, name, new_ast):
+            self.res = []
+            self.name = name
+            self.new_ast = new_ast
+
+        def generic_visit(self, node):
+            self.res.append(node)
+            for c in node:  #
+                if self.visit(c):
+                    # lets hack slots !
+                    slot = one(filter(lambda s: getattr(node, s) == c, node.__slots__))
+                    # Update the corresponding slot with new_ast
+                    setattr(node, slot, deepcopy(new_ast))  # copy is preferable
+
+            return False
+
+        def visit_ID(self, node):
+            return node.name == self.name
+
+    nv = ReplaceVisitor(name, new_ast)
+    nv.visit(ast)
+    return ast
+
+
+def test_c_ast_replace_id():
+    ast = stmt_c_to_ast('for(int n = 0; n < 10; n++) {n = x + n; x += x * 2;}')
+    new_ast = expr_c_to_ast("r")
+    c_ast_replace_id(ast, 'x', new_ast)
+    # print(ast)
+    assert len(list(c_ast_get_all_id_by_name(ast, 'r'))) == 3  # catch new r
+    # print(ast_to_c_highlight(ast))
 
 
 if __name__ == '__main__':
     test_c_ast_get_all_id()
+    test_c_ast_replace_id()

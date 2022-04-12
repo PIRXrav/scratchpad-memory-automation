@@ -472,7 +472,7 @@ def c_ast_replace_id(ast, name, new_ast):
 
 def test_c_ast_replace_id():
     ast = stmt_c_to_ast('for(int n = 0; n < 10; n++) {n = x + n; x += x * 2;}')
-    new_ast = expr_c_to_ast("r")
+    new_ast = expr_c_to_ast("r * pi")
     c_ast_replace_id(ast, 'x', new_ast)
     # print(ast)
     assert len(list(c_ast_get_all_id_by_name(ast, 'r'))) == 3  # catch new r

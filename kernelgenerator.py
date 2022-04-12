@@ -45,7 +45,7 @@ class Kernel:
         current_section = "UNTRACKED"
         with open(path_of_kernel(kernel_name)) as f:
             for line in f:
-                s = parse("//***SMA {}", line)
+                s = parse("//***SMA {}", line.rstrip(" \n\r"))
                 if s:
                     current_section = s[0]
                     expected_section = next(itersec)

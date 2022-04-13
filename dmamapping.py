@@ -82,7 +82,7 @@ def do_memory_mapping_on_topfor(ast, topfor, ref_decl_namespace):
         dma_mapping_algo3(ast, refs, i, ref_decl_namespace)
 
 
-def c_ast_to_interval(ref, namespace, intervalbegin0=False):
+def c_ast_to_interval(ref, namespace):
     """
     Analyse the reference
     """
@@ -136,7 +136,7 @@ def c_ast_to_interval(ref, namespace, intervalbegin0=False):
         def visit_Constant(self, node):
             if node.type == "int":
                 v = int(node.value)
-                interval = poly.Interval(0 if intervalbegin0 else v, v)
+                interval = poly.Interval(v, v)
             else:
                 raise Exception(f"Invalid type {node.type} in {node}")
             # print(f'visit_Constant : push({interval})')
@@ -177,7 +177,7 @@ def c_ast_loop_to_interval_name(for_nodes):
     for name, ast_a, ast_b in map(at.c_ast_for_get_l, for_nodes):
         a = c_ast_to_interval(ast_a, {})[0].b
         b = c_ast_to_interval(ast_b, {})[0].b
-        poly_loop.append((poly.Interval(a, b), name))
+        poly_loop.append((poly.Interval(a, b - 1), name))
 
     return poly_loop
 
@@ -347,7 +347,7 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
         namespace = deepcopy(poly_loop_namespace)
         for name in reversed(names):
             if name == div_name:
-                namespace[name] = poly.Interval(0, div_blocks)
+                namespace[name] = poly.Interval(0, div_blocks - 1)
                 return namespace
             else:
                 namespace[name] = poly.Interval(0, 0)

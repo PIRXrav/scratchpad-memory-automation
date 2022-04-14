@@ -29,6 +29,12 @@ log = logging.getLogger(__name__)
 DMA_SIZE = 129
 
 
+TYPES_SIZE = {'char': 1,
+              'int': 4,
+              'float': 4,
+              'double': 8}
+
+
 class Gencode:
     @classmethod
     def cgen_dma_ld(self, adr, buff, size):
@@ -162,12 +168,31 @@ def c_ast_ref_to_interval(ref, namespace):
     return name, asts, poly_ref
 
 
+def get_size_of_type(ctype):
+    """
+    int32_t -> 4
+    float32 -> 4
+    int -> 4
+    """
+    if ctype in TYPES_SIZE:
+        return TYPES_SIZE[ctype]
+
+    for nb_byes in range(1, 64):  # int8_t to int512_t
+        size = 8 * nb_byes
+        if str(size) in ctype:
+            return nb_byes
+    raise Exception(f"Unknown type size: {ctype}")
+
+
 def c_ast_arraydecl_to_l(decl):
-    name, type, asts = at.c_ast_arraydecl_get_l(decl)
+    name, ast_type, asts = at.c_ast_arraydecl_get_l(decl)
     ref_decl_names = [at.ast_to_c(ast) for ast in asts]
     poly_l = [
         sympy.parsing.sympy_parser.parse_expr(s, evaluate=True) for s in ref_decl_names
     ]
+    # print(type.names)
+    type_size = get_size_of_type(ast_type.names[-1])
+    poly_l.append(type_size)
     return name, asts, poly_l
 
 
@@ -218,7 +243,7 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
 
     # Analyse reference declaration
     ref_decl_l = ref_decl_namespace[ref_name]
-    ref_decl_l = [1, *list(reversed(ref_decl_l))]
+    ref_decl_l = list(reversed(ref_decl_l))
     ref_decl_l_cum = list(np.cumprod(ref_decl_l))
 
     # if 'input' in ref_name:
@@ -236,7 +261,7 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
         # Compute memory footprint for this namespace
         _, _, pr = c_ast_ref_to_interval(ref, namespace=namespace)
         # Compute poly area
-        area = 1
+        area = ref_decl_l[0] # Type size
         for ir, (interval, deps) in enumerate(reversed(pr)):
             v = interval.area()
             if v == 0:  # Not a dim in the array
@@ -312,7 +337,6 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
     log.debug(f"  `->{loops_ref_access_l_ref_expr_ram=}")
 
     # Check if area computation is ok
-    assert loops_ref_access_l_cum[0] == 1
     assert loops_ref_access_l_cum[-1] == ref_decl_l_cum[-1]
 
     # Find where insert DMA LD/ST
@@ -485,7 +509,6 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
         super_top_comp.block_items.insert(
             0, stmt_c_to_ast(f"int {size_name} = 0xdeadc0de;")
         )
-
 
         # Code generation
         #

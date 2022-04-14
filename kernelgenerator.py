@@ -74,22 +74,34 @@ class Kernel:
         self.sectionspp = {
             k: tc.cpp(self.sections[k], self.config) for k in KERNEL_CODE_SEC
         }
-        self.sectionsast = {k: c_to_ast(code) for k, code in self.sectionspp.items()}
-        self.fun = self.sectionsast["FUN"].ext[0]
-        self.fun_arg_list = []
-        self.decls = self.sectionsast["ARG"].ext
 
-        # Verify file
+        # Process Function ast
+        self.fun = c_to_ast(self.sectionspp['FUN']).ext[0]
+        self.fun_arg_list = []
         if self.fun.__class__ != c_ast.FuncDef:
             raise Exception(f"Malformed file: {self.fun} is not of type FuncDef")
-
         if self.fun.decl.type.args is not None:
             raise Exception("Malformed file: function already has arguments")
         self.fun.decl.type.args = c_ast.ParamList(self.fun_arg_list)
 
-        for decl in self.decls:
-            if decl.__class__ != c_ast.Decl:
-                raise Exception(f"Malformed file: {decl} is not of type Decl")
+        # Process Arguments
+        self.decls = []
+        for line in self.sectionspp["ARG"].split("\n"):
+            s = parse("{} {}", line)
+            if s:
+                ctype = s[0].replace(' ', '')
+                cdecl = s[1].replace(' ', '')
+                if ctype in ('char', 'int', 'float', 'double'):  # TODO all std c types
+                    decl = c_to_ast(line).ext[0]
+                else:
+                    ext = c_to_ast(f"typedef int {ctype}; {line}").ext
+                    assert len(ext) == 2
+                    assert ext[0].__class__ == c_ast.Typedef
+                    decl = ext[1]
+                if decl.__class__ != c_ast.Decl:
+                    raise Exception(f"Malformed file: {decl} is not of type Decl")
+                # print(f'ARG: {ctype}#{type_size} {cdecl}')
+                self.decls.append(decl)
 
     def get_config(self):
         """Return current kernel configurarion"""

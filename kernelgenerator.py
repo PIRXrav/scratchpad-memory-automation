@@ -6,9 +6,9 @@ from subprocess import check_output
 
 from asttools import c_highlight
 from asttools import c_to_ast, ast_to_c, expr_c_to_ast
-from asttools import delc_to_ptr_decl
-
 from asttools import fun_get_name, fun_set_name
+import asttools as at
+
 
 from dmamapping import do_memory_mapping, c_ast_arraydecl_to_l
 
@@ -113,15 +113,15 @@ class Kernel:
             # Compute memory size
             decl_l_namespace = {}
             for decl in self.decls:
-                name, _, decl_l = c_ast_arraydecl_to_l(decl)
-                decl_l_namespace[name] = decl_l
+                name, ast_type, asts, decl_l = c_ast_arraydecl_to_l(decl)
+                decl_l_namespace[name] = (ast_type, decl_l)
             # Do mapping
             do_memory_mapping(self.fun, decl_l_namespace)
 
         # Add args
         for decl in self.decls:
             arg_name = decl.name + "_arg"
-            ptr_decl = delc_to_ptr_decl(decl)
+            ptr_decl = at.c_ast_delc_to_ptr_decl(decl)
             ptr_decl.init = c_ast.ID(arg_name)
             # Append arguments
             self.fun.body.block_items.insert(0, ptr_decl)

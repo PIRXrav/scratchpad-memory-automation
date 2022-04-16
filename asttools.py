@@ -161,7 +161,7 @@ def c_ast_constant_to_int(node):
         raise Exception(f"Invalid node {node}")
 
 
-def c_ast_arraydecl_get_l(decl):
+def c_ast_arraydecl_get_all(decl):
     """
     Analyse the arraydecl
     """
@@ -214,7 +214,7 @@ def c_ast_arraydecl_get_l(decl):
 
         def visit_TypeDecl(self, node):
             assert self.name == node.declname
-            self.type = node.type
+            self.type = node
 
     v = ArrayDeclVisitor()
     v.visit(decl)
@@ -320,10 +320,10 @@ def c_ast_ref_is_rw(ast, ref):
     # Impossible do decorate tree: __slots__ class :/
 
 
-def delc_to_ptr_decl(decl):
+def c_ast_delc_to_ptr_decl(decl):
     """Convert a decl to a pointer of the same type"""
     if decl.type.__class__ == c_ast.ArrayDecl:
-        decl.type = c_ast.PtrDecl([], decl.type.type)
+        decl.type = c_ast.PtrDecl([], deepcopy(decl.type.type))
     else:
         raise Exception(f"Unimplemented type: {decl.type}")
     return decl
@@ -478,7 +478,99 @@ def test_c_ast_replace_id():
     assert len(list(c_ast_get_all_id_by_name(ast, 'r'))) == 3  # catch new r
     # print(ast_to_c_highlight(ast))
 
+def c_ast_typename(type_s):
+    """
+    Typename(name=None,
+                      quals=[
+                            ],
+                      align=None,
+                      type=PtrDecl(quals=[
+                                         ],
+                                   type=TypeDecl(declname=None,
+                                                 quals=[
+                                                       ],
+                                                 align=None,
+                                                 type=IdentifierType(names=['int'
+                                                                           ]
+                                                                     )
+                                                 )
+                                   )
+                      ),
+    """
+    nbptr_type = type_s.count('*')
+    base_type_s = type_s.replace('*', '')
+    base_type = c_ast.TypeDecl(None, [], None, c_ast.IdentifierType([base_type_s]))
+    for _ in range(nbptr_type):
+        base_type = c_ast.PtrDecl([], base_type)
+    return c_ast.Typename(None, [], None, base_type)
+
+def c_ast_get_parent(ast, nodes):
+    class ParentVisitor(c_ast.NodeVisitor):
+        def __init__(self, nodes):
+            self.res = []
+            self.nodes = set(nodes)
+
+        def generic_visit(self, node):
+            if node in self.nodes:
+                return True
+            for c in node:
+                if self.visit(c):
+                    # lets hack slots !
+                    slot = one(filter(lambda s: getattr(node, s) == c, node.__slots__))
+                    self.res.append((node, slot, c))  # $node.$slot = $c
+            return False
+
+    nv = ParentVisitor(nodes)
+    nv.visit(ast)
+    return nv.res
+
+def c_ast_cast_nodes(ast, nodes, cast_type):
+    """Replace node by (cast_type)node"""
+    for parent, slot, node in c_ast_get_parent(ast, nodes):
+        setattr(parent, slot, c_ast.Cast(c_ast_typename(cast_type), node))
+    return ast
+
+
+def c_ast_update_ref_dereference_type(ast, nodes, type_decl):
+    """Replace node by (cast_type)node"""
+    if type(type_decl) is not c_ast.TypeDecl:
+        raise Exception(f"{type_decl} is not of type c_ast.TypeDecl")
+    for parent, slot, node in c_ast_get_parent(ast, nodes):
+        assert getattr(parent, slot) is node
+        to_type = c_ast.Typename(None, [], None, c_ast.PtrDecl([], type_decl))
+        new_node = c_ast.UnaryOp('&', node)
+        new_node = c_ast.Cast(to_type, new_node)
+        new_node = c_ast.UnaryOp('*', new_node)
+        setattr(parent, slot, new_node)
+    return ast
+
+# def c_ast_update_ref_dereference_type(ast, nodes, deref_type):
+#     """Replace node by (cast_type)node"""
+#     for parent, slot, node in c_ast_get_parent(ast, nodes):
+#         node = c_ast.UnaryOp('&', node)
+#         node = c_ast.Cast(c_ast_typename(deref_type + '*'), node)
+#         node = c_ast.UnaryOp('*', node)
+#         setattr(parent, slot, node)
+#     return ast
+
+def test_c_ast_cast_node():
+    # print((expr_c_to_ast('56 + *(int*)&x')))
+    ast = stmt_c_to_ast('for(int n = 0; n < 10; n++) {n = x + n; x += x * 2;}')
+    xids = list(c_ast_get_all_id_by_name(ast, 'x'))
+    c_ast_cast_nodes(ast, xids, 'mytype**')
+
+
+def test_c_ast_update_ref_dereference_type():
+    ast = stmt_c_to_ast('for(int n = 0; n < 10; n++) {n = x + n; x += x * 2;}')
+    xids = list(c_ast_get_all_id_by_name(ast, 'x'))
+    type_decl = c_ast.TypeDecl(None, [], None, c_ast.IdentifierType(['__i64']))
+    print(type_decl)
+    c_ast_update_ref_dereference_type(ast, xids, type_decl)
+    print(ast_to_c_highlight(ast))
+
 
 if __name__ == '__main__':
     test_c_ast_get_all_id()
     test_c_ast_replace_id()
+    test_c_ast_cast_node()
+    test_c_ast_update_ref_dereference_type()

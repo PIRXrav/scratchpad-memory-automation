@@ -11,9 +11,9 @@ int32_t output[N];
 int8_t weights[N][M];
 */
 
-char input[M];
-char output[N];
-char weights[N][M];
+int32_t input[M];
+int32_t output[N];
+int8_t weights[N][M];
 
 //***SMA FUN
 

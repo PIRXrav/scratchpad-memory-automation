@@ -183,17 +183,16 @@ def get_size_of_type(ctype):
             return nb_byes
     raise Exception(f"Unknown type size: {ctype}")
 
+def c_ast_expr_to_l(ast):
+    return sympy.parsing.sympy_parser.parse_expr(at.ast_to_c(ast), evaluate=True)
+
 
 def c_ast_arraydecl_to_l(decl):
-    name, ast_type, asts = at.c_ast_arraydecl_get_l(decl)
-    ref_decl_names = [at.ast_to_c(ast) for ast in asts]
-    poly_l = [
-        sympy.parsing.sympy_parser.parse_expr(s, evaluate=True) for s in ref_decl_names
-    ]
-    # print(type.names)
-    type_size = get_size_of_type(ast_type.names[-1])
-    poly_l.append(type_size)
-    return name, asts, poly_l
+    name, ast_type, asts = at.c_ast_arraydecl_get_all(decl)
+    poly_l = [c_ast_expr_to_l(ast) for ast in reversed(asts)]
+    assert len(ast_type.type.names) == 1
+    poly_l.insert(0, get_size_of_type(ast_type.type.names[-1]))
+    return name, ast_type, asts, poly_l
 
 
 def c_ast_loop_to_interval_name(for_nodes):
@@ -242,8 +241,7 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
     ref_access_names = [at.ast_to_c(ast) for ast in ref_l_ast]
 
     # Analyse reference declaration
-    ref_decl_l = ref_decl_namespace[ref_name]
-    ref_decl_l = list(reversed(ref_decl_l))
+    ref_decl_type_ast, ref_decl_l = ref_decl_namespace[ref_name]
     ref_decl_l_cum = list(np.cumprod(ref_decl_l))
 
     # if 'input' in ref_name:
@@ -473,9 +471,9 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
         ast_buff = expr_c_to_ast(f"{buffer_name}[{buff_adr}]")
         for ref in refs:
             at.c_ast_ref_update(ref, ast_buff.name, ast_buff.subscript)
+        at.c_ast_update_ref_dereference_type(ast, refs, ref_decl_type_ast)
 
     else:
-
         # Loop names
         il_high_name = il_name + '_high'
         il_low_name = il_name + '_low'
@@ -491,6 +489,7 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
         ast_buff = expr_c_to_ast(mapping_dma_name)
         for ref in refs:
             at.c_ast_ref_update(ref, ast_buff.name, ast_buff.subscript)
+        at.c_ast_update_ref_dereference_type(ast, refs, ref_decl_type_ast)
 
         # Compute base ref@
         rn = loops_ref_access_l_ref_expr_ram[IL - 1]

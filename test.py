@@ -21,9 +21,7 @@ else:
     LOG_LEVEL = logging.ERROR
     DEBUG_MODE = 0
 
-LOGFORMAT = (
-    "%(log_color)s%(levelname)-8s%(reset)s | %(log_color)s%(message)s%(reset)s"
-)
+LOGFORMAT = "%(log_color)s%(levelname)-8s%(reset)s | %(log_color)s%(message)s%(reset)s"
 
 logging.basicConfig(
     level=LOG_LEVEL,
@@ -102,7 +100,7 @@ def bench_kernel(kernel_name, config, do_mem_mapping=True):
 
     @timing
     def build(cnames, binname):
-        files = ' '.join(cnames)
+        files = " ".join(cnames)
         cmd = f"{CC} {CFLAGS} {LDFLAGS} {files} -I{PREFIX} -o {binname}"
         ret = tc.shell(cmd)
         return ret
@@ -129,8 +127,7 @@ def validation_kernel(kernel_name, config):
     """
     log.info(f"KERNEL validation: {kernel_name} {config}")
     files = [
-        bench_kernel(kernel_name, config, do_mem_mapping=tf)
-        for tf in (False, True)
+        bench_kernel(kernel_name, config, do_mem_mapping=tf) for tf in (False, True)
     ]
     total_diff = 0
     for ff in zip(*tuple(files)):
@@ -157,6 +154,8 @@ CFG_X_Y_DKX_DKY = [
     for x, y, dkx, dky in product(RNG_1D, RNG_1D, (1, 3), (3, 4))
 ]
 
+CFG_N = [{"N": n} for n in [1, 2, 3, 4, 8, 9, 20, 32, 128, 255, 1010, 4096]]
+
 
 def gen_bench(bench):
     for name, configs in bench.items():
@@ -176,28 +175,43 @@ def ddt_bench(bench):
     return tuple(map(annotated, bench))
 
 
+FAST_BENCH = {
+    "conv2d": [
+        {"X": 256, "Y": 8, "DKX": 3, "DKY": 3},
+        {"X": 32, "Y": 8, "DKX": 1, "DKY": 4},
+    ],
+    "copy": [{"M": 32, "N": 1024}],
+    "gemv": [{"M": 32, "N": 32}],
+    "set1_32b": [{"N": 128}],
+    "set10": [{"N": 32}],
+}
+
+
 @ddt
 class TestKernels(unittest.TestCase):
+    @data(*ddt_bench(gen_bench(FAST_BENCH)))
+    def test_0_fast(self, args):
+        self.assertFalse(validation_kernel(*args))
+
     @data(*ddt_bench(gen_bench(BIG_BENCHMARK)))
-    def test_base(self, args):
+    def test_1_base(self, args):
+        self.assertFalse(validation_kernel(*args))
+
+    @data(*ddt_bench(gen_bench({"set1_32b": CFG_N})))
+    def test_2_multiple_types(self, args):
         self.assertFalse(validation_kernel(*args))
 
     @data(*ddt_bench(gen_bench({"conv2d": CFG_X_Y_DKX_DKY})))
     def test_conv2d(self, args):
         self.assertFalse(validation_kernel(*args))
 
-    # TODO: add cast to DMA !
-    # @data(*ddt_bench(gen_bench({"set1_32b": [{'N': 128}]})))
-    # def test_32b(self, args):
-    #     self.assertFalse(validation_kernel(*args))
-
 
 if __name__ == "__main__":
-    # validation_kernel('conv2d', {'X': 256, 'Y': 8, 'DKX': 3, 'DKY': 3})
-    # validation_kernel('conv2d', {'X': 32, 'Y': 8, 'DKX': 1, 'DKY': 4})
-    # validation_kernel('copy', {'M': 32, 'N': 1024})
+    # validation_kernel()
+    # validation_kernel('conv2d', )
+    # validation_kernel('copy', )
     # validation_kernel('gemv', {'M': 32, 'N': 32})
-    validation_kernel('set1_32b', {'N': 128})
+    validation_kernel("set1_32b", {"N": 128})
     # X64_Y5_DKX1_DKY4
     # validation_kernel("set10", {"N": 32})
     timing_dump()

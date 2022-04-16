@@ -8,7 +8,7 @@ from asttools import c_highlight
 from asttools import c_to_ast, ast_to_c, expr_c_to_ast
 from asttools import fun_get_name, fun_set_name
 import asttools as at
-
+import outpreprocessor as opp
 
 from dmamapping import do_memory_mapping, c_ast_arraydecl_to_l
 
@@ -123,12 +123,13 @@ class Kernel:
             arg_name = decl.name + "_arg"
             ptr_decl = at.c_ast_delc_to_ptr_decl(decl)
             ptr_decl.init = c_ast.ID(arg_name)
+            at.c_ast_decl_type_add_prefix(ptr_decl, f'__SMA_RAM_PTR{opp.OPP_SPACE}')
             # Append arguments
             self.fun.body.block_items.insert(0, ptr_decl)
-            self.fun_arg_list.append(expr_c_to_ast(f"void *{arg_name}"))
+            self.fun_arg_list.append(expr_c_to_ast(f"__SMA_RAM_PTR{opp.OPP_SPACE}void *{arg_name}"))
 
         # Update function name
-        fun_name = kernel_compute_name(fun_get_name(self.fun), self.config)
+        fun_name = kernel_compute_name(self.kernel_name, self.config)
         fun_set_name(self.fun, fun_name)
 
         return self
@@ -149,7 +150,7 @@ class Kernel:
         )
         code += '#include "dma.h"\n'
         code += "\n"
-        code += ast_to_c(self.fun)
+        code += opp.opp(ast_to_c(self.fun))
         return filename, code
 
     def generate_benchmark_gdb(self, prefix=""):

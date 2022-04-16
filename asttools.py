@@ -564,9 +564,41 @@ def test_c_ast_update_ref_dereference_type():
     ast = stmt_c_to_ast('for(int n = 0; n < 10; n++) {n = x + n; x += x * 2;}')
     xids = list(c_ast_get_all_id_by_name(ast, 'x'))
     type_decl = c_ast.TypeDecl(None, [], None, c_ast.IdentifierType(['__i64']))
-    print(type_decl)
+    # print(type_decl)
     c_ast_update_ref_dereference_type(ast, xids, type_decl)
-    print(ast_to_c_highlight(ast))
+    # print(ast_to_c_highlight(ast))
+
+
+def c_ast_decl_type_add_prefix(decl, prefix):
+    all_type_id = c_ast_get_all_nodes_by_type(decl, c_ast.IdentifierType)
+    if len(all_type_id) != 1:
+        raise Exception(f"Invalid number of IdentifierType: {all_type_id}")
+    type_id = all_type_id[0]
+    type_id.names[0] = prefix + type_id.names[0]
+    return decl
+
+def c_ast_get_all_nodes_by_type(ast, node_class):
+    class GenericVisitor(c_ast.NodeVisitor):
+        def __init__(self):
+            self.res = []
+
+        def generic_visit(self, node):
+            if type(node) is node_class:
+                self.res.append(node)
+            for c in node:
+                self.visit(c)
+
+    nv = GenericVisitor()
+    nv.visit(ast)
+    return nv.res
+
+
+def test_c_decl_type_add_prefix():
+    for var in ('x', 'x[4][5]', '*x[5] = {0}'):
+        ast = stmt_c_to_ast(f'int {var};')
+        c_ast_decl_type_add_prefix(ast, '__SMA_RAM_')
+        code = ast_to_c(ast)
+        assert code == f'__SMA_RAM_int {var}'
 
 
 if __name__ == '__main__':
@@ -574,3 +606,4 @@ if __name__ == '__main__':
     test_c_ast_replace_id()
     test_c_ast_cast_node()
     test_c_ast_update_ref_dereference_type()
+    test_c_decl_type_add_prefix()

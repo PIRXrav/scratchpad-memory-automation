@@ -15,3 +15,6 @@ __sma__dma_t __SMA__dma0[DMA_SIZE];
 __sma__dma_t __SMA__dma1[DMA_SIZE];
 __sma__dma_t __SMA__dma2[DMA_SIZE];
 __sma__dma_t __SMA__dma3[DMA_SIZE];
+
+#define __SMA_RAM_PTR
+#define __SMA_RAM

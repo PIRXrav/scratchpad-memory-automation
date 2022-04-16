@@ -36,7 +36,6 @@ We perform a source-to-source conversion.
 
 ## TODO
 
-- __SMA_RAM type flag
 - DMA min size
 - DMA alignment
 - DMA modelisation w/ timings :D

@@ -12,7 +12,7 @@ def shell(cmd, verbose=False):
         print(cmd)
     res = subprocess.check_output(cmd, shell=True)
     if verbose:
-        print(res)
+        print(res.decode('UTF-8'))
 
 
 def cpp(code, config):

@@ -109,7 +109,7 @@ def bench_kernel(kernel_name, config, do_mem_mapping=True):
     def run_simu(gdbname, binname):
         # Run
         cmd = f"gdb --batch --command={gdbname} --args {binname}"
-        ret = tc.shell(cmd)
+        ret = tc.shell(cmd, verbose=True)
         tc.shell(f'wc -c {" ".join(dumpfiles)}')
         return dumpfiles, ret
 
@@ -210,8 +210,8 @@ if __name__ == "__main__":
     # validation_kernel()
     # validation_kernel('conv2d', )
     # validation_kernel('copy', )
-    # validation_kernel('gemv', {'M': 32, 'N': 32})
-    validation_kernel("set1_32b", {"N": 128})
+    validation_kernel('conv2d', {"X": 32, "Y": 8, "DKX": 1, "DKY": 4})
+    # validation_kernel("set1_32b", {"N": 128})
     # X64_Y5_DKX1_DKY4
     # validation_kernel("set10", {"N": 32})
     timing_dump()

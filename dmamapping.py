@@ -26,7 +26,7 @@ import polyhedron as poly
 log = logging.getLogger(__name__)
 
 
-DMA_SIZE = 129
+DMA_SIZE = 128
 
 
 TYPES_SIZE = {'char': 1,
@@ -37,12 +37,16 @@ TYPES_SIZE = {'char': 1,
 
 class Gencode:
     @classmethod
-    def cgen_dma_ld(self, adr, buff, size):
-        return f"DMA_LD({adr}, {buff}, {size})"
+    def cgen_dma_init(self, index, adr, size):
+        return f"DMA_INIT({index}, {adr}, {size});"
 
     @classmethod
-    def cgen_dma_st(self, adr, buff, size):
-        return f"DMA_ST({adr}, {buff}, {size})"
+    def cgen_dma_ld(self, index, adr, size):
+        return f"DMA_LD({index})"
+
+    @classmethod
+    def cgen_dma_st(self, index, adr, size):
+        return f"DMA_ST({index})"
 
     @classmethod
     def cgen_static_mac(self, A, B):
@@ -428,10 +432,9 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
     log.debug(f"Nuber of bytes loaded/stored = {stats_dma_ops}")
 
     # DMA configuration
-    buffer_name = f"__SMA__dma{iref}"
     adr_name = f"__SMA__{il_name}_adr{iref}"
     size_name = f"__SMA__{il_name}_size{iref}"
-    cgen_dma_args = (adr_name, buffer_name, size_name)
+    cgen_dma_args = (str(iref), adr_name, size_name)
 
     # The higher Compound node
     super_top_comp = at.c_ast_get_upper_node(ast, for_nodes[-1])
@@ -451,16 +454,13 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
         dma_transfer_size = ref_decl_l_cum[-1]
         dma_transfer_size_eff = dma_transfer_size
         mapping_ram_name = ref_name
-        # Insert transactions
+        # Init DMA
         topcomp.block_items.insert(
-            0, stmt_c_to_ast(f"int {size_name} = {dma_transfer_size};")
-        )
-        topcomp.block_items.insert(
-            1, stmt_c_to_ast(f"void * {adr_name} = {mapping_ram_name};")
+            0, at.stmt_c_to_ast(Gencode.cgen_dma_init(iref, mapping_ram_name, dma_transfer_size))
         )
         if ref_is_read:  # insert LD
             topcomp.block_items.insert(
-                2, expr_c_to_ast(Gencode.cgen_dma_ld(*cgen_dma_args))
+                1, expr_c_to_ast(Gencode.cgen_dma_ld(*cgen_dma_args))
             )
         if ref_is_write:  # Insert ST
             topcomp.block_items.append(
@@ -468,10 +468,11 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
             )
         # Update ref
         buff_adr = Gencode.cgen_static_mac(ref_access_names, ref_decl_l_cum[0:-1])
-        ast_buff = expr_c_to_ast(f"{buffer_name}[{buff_adr}]")
-        for ref in refs:
-            at.c_ast_ref_update(ref, ast_buff.name, ast_buff.subscript)
-        at.c_ast_update_ref_dereference_type(ast, refs, ref_decl_type_ast)
+        adr_ast = expr_c_to_ast(f"DMA_RW({iref}, {buff_adr})")
+        to_type = c_ast.Typename(None, [], None, c_ast.PtrDecl([], ref_decl_type_ast))
+        new_node = c_ast.Cast(to_type, adr_ast)  # Cast
+        new_node = c_ast.UnaryOp('*', new_node)  # dereference
+        at.c_ast_replace_nodes(ast, refs, [deepcopy(new_node) for _ in refs])
 
     else:
         # Loop names
@@ -485,11 +486,12 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
             e.subs(il_name, il_low_name) for e in loops_ref_access_l_ref_expr_dma[IL]
         ]
         buff_adr = Gencode.cgen_static_mac(new_ref_expr_dma, ref_decl_l_cum)
-        mapping_dma_name = f"{buffer_name}[{buff_adr}]"
-        ast_buff = expr_c_to_ast(mapping_dma_name)
-        for ref in refs:
-            at.c_ast_ref_update(ref, ast_buff.name, ast_buff.subscript)
-        at.c_ast_update_ref_dereference_type(ast, refs, ref_decl_type_ast)
+        adr_ast = expr_c_to_ast(f"{buff_adr}")
+        adr_ast = expr_c_to_ast(f"DMA_RW({iref}, {buff_adr})")
+        to_type = c_ast.Typename(None, [], None, c_ast.PtrDecl([], ref_decl_type_ast))
+        new_node = c_ast.Cast(to_type, adr_ast)  # Cast
+        new_node = c_ast.UnaryOp('*', new_node)  # dereference
+        at.c_ast_replace_nodes(ast, refs, [deepcopy(new_node) for _ in refs])
 
         # Compute base ref@
         rn = loops_ref_access_l_ref_expr_ram[IL - 1]
@@ -497,17 +499,7 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
             e.subs(il_name, f"{il_high_name} * {block_size}") for e in rn
         ]
         mapping_ram_name = ref_name + "".join(reversed(list((f"[{i}]" for i in new_ref_expr_ram))))
-
-        log.debug(f"  --> {mapping_dma_name=}")
         log.debug(f"  --> {mapping_ram_name=}")
-
-        # New variables
-        super_top_comp.block_items.insert(
-            0, stmt_c_to_ast(f"void * {adr_name} = (char*)0xdeadc0de;")
-        )
-        super_top_comp.block_items.insert(
-            0, stmt_c_to_ast(f"int {size_name} = 0xdeadc0de;")
-        )
 
         # Code generation
         #
@@ -539,10 +531,11 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
         else:
             size = str(dma_transfer_size)
 
-        for stmt in at.stmt_c_to_ast(f"""{{{size_name} = {size};
-                                        {adr_name} = {'&' + mapping_ram_name};
-                                        }}""").block_items:
-            stmts.append(stmt)
+        # for stmt in at.stmt_c_to_ast(f"""{{{size_name} = {size};
+        #                                 {adr_name} = {'&' + mapping_ram_name};
+        #                                 }}""").block_items:
+        # Initialise DMA
+        stmts.append(at.stmt_c_to_ast(Gencode.cgen_dma_init(iref, '&' + mapping_ram_name, size)))
 
         # Load
         if ref_is_read:

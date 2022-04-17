@@ -531,17 +531,33 @@ def c_ast_cast_nodes(ast, nodes, cast_type):
     return ast
 
 
-def c_ast_update_ref_dereference_type(ast, nodes, type_decl):
+def test_c_ast_cast_node():
+    # print((expr_c_to_ast('56 + *(int*)&x')))
+    ast = stmt_c_to_ast('for(int n = 0; n < 10; n++) {n = x + n; x += x * 2;}')
+    xids = list(c_ast_get_all_id_by_name(ast, 'x'))
+    c_ast_cast_nodes(ast, xids, 'mytype**')
+
+
+def c_ast_replace_nodes(ast, old_nodes, new_nodes):
+    for new, (parent, slot, old) in zip(new_nodes, c_ast_get_parent(ast, old_nodes)):
+        assert getattr(parent, slot) is old
+        setattr(parent, slot, new)
+
+
+def c_ast_update_ref_dereference_type(ast, nodes, type_decl, wrapper):
     """Replace node by (cast_type)node"""
     if type(type_decl) is not c_ast.TypeDecl:
         raise Exception(f"{type_decl} is not of type c_ast.TypeDecl")
-    for parent, slot, node in c_ast_get_parent(ast, nodes):
-        assert getattr(parent, slot) is node
+
+    def transformation(node):
         to_type = c_ast.Typename(None, [], None, c_ast.PtrDecl([], type_decl))
-        new_node = c_ast.UnaryOp('&', node)
-        new_node = c_ast.Cast(to_type, new_node)
-        new_node = c_ast.UnaryOp('*', new_node)
-        setattr(parent, slot, new_node)
+        new_node = node
+        new_node = c_ast.FuncCall(c_ast.ID(wrapper), c_ast.ExprList([new_node]))  # Wrap
+        new_node = c_ast.Cast(to_type, new_node)  # Cast
+        new_node = c_ast.UnaryOp('*', new_node)  # dereference
+        return new_node
+
+    c_ast_replace_nodes(ast, nodes, [transformation(c) for c in nodes])
     return ast
 
 # def c_ast_update_ref_dereference_type(ast, nodes, deref_type):
@@ -553,20 +569,13 @@ def c_ast_update_ref_dereference_type(ast, nodes, type_decl):
 #         setattr(parent, slot, node)
 #     return ast
 
-def test_c_ast_cast_node():
-    # print((expr_c_to_ast('56 + *(int*)&x')))
-    ast = stmt_c_to_ast('for(int n = 0; n < 10; n++) {n = x + n; x += x * 2;}')
-    xids = list(c_ast_get_all_id_by_name(ast, 'x'))
-    c_ast_cast_nodes(ast, xids, 'mytype**')
-
-
 def test_c_ast_update_ref_dereference_type():
-    ast = stmt_c_to_ast('for(int n = 0; n < 10; n++) {n = x + n; x += x * 2;}')
-    xids = list(c_ast_get_all_id_by_name(ast, 'x'))
+    ast = stmt_c_to_ast('for(int n = 0; n < 10; n++) {n = x + n; x += x * z;}')
+    xids = list(c_ast_get_all_id_by_name(ast, 'z'))
     type_decl = c_ast.TypeDecl(None, [], None, c_ast.IdentifierType(['__i64']))
     # print(type_decl)
-    c_ast_update_ref_dereference_type(ast, xids, type_decl)
-    # print(ast_to_c_highlight(ast))
+    c_ast_update_ref_dereference_type(ast, xids, type_decl, 'wrapper')
+    print(ast_to_c_highlight(ast))
 
 
 def c_ast_decl_type_add_prefix(decl, prefix):

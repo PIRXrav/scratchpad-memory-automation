@@ -9,7 +9,7 @@
 
 #define DMA_SIZE 128
 #define NR_DMA 3
-
+#define WORD_SIZE 8
 
 #define DMA_INIT(index, adr, size) __sma_dma_init(index, adr, size)
 #define DMA_LD(index) __sma_dma_load(index)
@@ -27,8 +27,8 @@
 #define __SMA_RAM_PTR
 #define __SMA_RAM __attribute__((aligned(8)))
 
-#define SMA_ALIGNMENT 8
-#define SMA_MULTIPLICITY 8
+#define SMA_ALIGNMENT WORD_SIZE
+#define SMA_MULTIPLICITY WORD_SIZE
 
 #define __DMA_EFF_SIZE (DMA_SIZE + SMA_MULTIPLICITY * 2)
  
@@ -87,7 +87,16 @@ __SMA_RAM_PTR void * __sma_base_adr[NR_DMA];
 void __sma_dma_init(uint8_t index, __SMA_RAM_PTR void *adr, uint16_t size){
     __sma_base_adr[index] = adr;
     __sma_size[index] = size;
-    assert(__sma_size[index] <= DMA_SIZE);
+    /*
+    if(!(__sma_size[index] <= DMA_SIZE)){
+        exit(1);
+    }
+    if(!(__sma_size[index] % WORD_SIZE == 0)){
+        exit(2);
+    }
+    if(!((uint64_t)__sma_base_adr[index] % WORD_SIZE == 0)){
+        exit(10);
+    }*/
 }
 
 void __sma_dma_load(uint8_t index){
@@ -99,7 +108,9 @@ void __sma_dma_store(uint8_t index){
 }
 
 void *__sma_dma_access(uint8_t index, uint16_t reladr){
-    assert(reladr < DMA_SIZE);
+    if(!(reladr < DMA_SIZE)){
+        exit(20);
+    }
     return &__sma_dma[index][reladr];
 }
 

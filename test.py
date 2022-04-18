@@ -7,8 +7,6 @@ import filecmp
 from asttools import c_highlight
 import unittest
 from ddt import ddt, data
-from functools import wraps
-from time import time
 from itertools import product
 
 import toolchain as tc
@@ -31,111 +29,21 @@ logging.basicConfig(
 
 log = logging.getLogger()
 
-PREFIX = "/tmp/"
-SMA_SOURCE = PREFIX + "sma_source.c"
-SMA_BIN = PREFIX + "sma_bin"
-
-CC = "gcc"
-CFLAGS = "-Wall -Wextra -Werror -Idmasimulator -g -O1"
-LDFLAGS = ""
-
-
-timing_stack = []
-
-
-def timing(func):
-    """Measure elapsed time"""
-
-    @wraps(func)
-    def wrap(*args, **kw):
-        global timing_stack
-        ts = time()
-        result = func(*args, **kw)
-        te = time()
-        elapsed = int((te - ts) * 1000)
-        timing_stack.append(f"func:{func.__name__:>20} took: {elapsed:>8} ms")
-        return result
-
-    return wrap if DEBUG_MODE else func
-
-
-def timing_dump():
-    """Display results of timing func"""
-    global timing_stack
-    for s in timing_stack:
-        log.info(s)
-    timing_stack = []
-
-
-def bench_kernel(kernel_name, config, do_mem_mapping=True):
-    """Benchmark a kernel
-    TODO: in module Kernel
-    """
-
-    @timing
-    def generate(kernel_name, config):
-        # Generate C code
-        kernel = Kernel(kernel_name, config)
-        kernel.process(do_mem_mapping=do_mem_mapping)
-
-        hname, hcode = kernel.generate_header()
-        if do_mem_mapping:
-            log.debug(c_highlight(hcode))
-        cname, ccode = kernel.generate_benchmark()
-        # print(c_highlight(ccode))
-        gdbname, gdbcode, dumpfiles = kernel.generate_benchmark_gdb(
-            prefix=PREFIX + ("dma_" if do_mem_mapping else "")
-        )
-        return (hname, hcode, cname, ccode, gdbname, gdbcode), dumpfiles
-
-    @timing
-    def write_files(hname, hcode, cname, ccode, gdbname, gdbcode):
-        hname = PREFIX + hname
-        cname = PREFIX + cname
-        gdbname = PREFIX + gdbname
-        tc.write_file(hname, hcode)
-        tc.write_file(cname, ccode)
-        tc.write_file(gdbname, gdbcode)
-        return hname, cname, gdbname
-
-    @timing
-    def build(cnames, binname):
-        files = " ".join(cnames)
-        cmd = f"{CC} {CFLAGS} {LDFLAGS} {files} -I{PREFIX} -o {binname}"
-        ret = tc.shell(cmd)
-        return ret
-
-    @timing
-    def run_simu(gdbname, binname):
-        # Run
-        cmd = f"gdb --batch --command={gdbname} --args {binname}"
-        ret = tc.shell(cmd, verbose=True)
-        tc.shell(f'wc -c {" ".join(dumpfiles)}')
-        return dumpfiles, ret
-
-    binname = PREFIX + "sma_bin" + ("_mem_mapping" if do_mem_mapping else "")
-    files_plus_code, dumpfiles = generate(kernel_name, config)
-    hname, cname, gdbname = write_files(*files_plus_code)
-    build([cname], binname)
-    run_simu(gdbname, binname)
-    return dumpfiles
-
 
 def validation_kernel(kernel_name, config):
     """Run kernel with and without dma mapping. Then compare the memory of the
     programmes with gdb
     """
     log.info(f"KERNEL validation: {kernel_name} {config}")
-    files = [
-        bench_kernel(kernel_name, config, do_mem_mapping=tf) for tf in (False, True)
-    ]
-    total_diff = 0
-    for ff in zip(*tuple(files)):
-        eq = filecmp.cmp(*ff)
-        total_diff += not eq
-        log.debug(f'{ff[0]} and {ff[1]} {"are equals" if eq else "differ"}')
+    kernel = Kernel(kernel_name, config)
+    result, files = kernel.bench()
+    print(files)
+    # for ff in zip(*tuple(files)):
+    #     eq = filecmp.cmp(*ff)
+    #     total_diff += not eq
+    #     log.debug(f'{ff[0]} and {ff[1]} {"are equals" if eq else "differ"}')
 
-    return total_diff
+    return result
 
 
 CONF_1D_04 = (2, 7, 8, 31, 32, 111, 1000, 1024)
@@ -210,8 +118,10 @@ if __name__ == "__main__":
     # validation_kernel()
     # validation_kernel('conv2d', )
     # validation_kernel('copy', )
-    validation_kernel('conv2d', {"X": 32, "Y": 8, "DKX": 1, "DKY": 4})
+    validation_kernel('conv2d', {"X": 256, "Y": 8, "DKX": 3, "DKY": 3})
+    # validation_kernel('conv2d', {"X": 32, "Y": 8, "DKX": 1, "DKY": 4})
+    # validation_kernel('gemv', {"M": 32, "N": 32})
+
     # validation_kernel("set1_32b", {"N": 128})
     # X64_Y5_DKX1_DKY4
     # validation_kernel("set10", {"N": 32})
-    timing_dump()

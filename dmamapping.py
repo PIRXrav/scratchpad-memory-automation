@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 
 
 DMA_SIZE = 128
-
+WORD_SIZE = 8
 
 TYPES_SIZE = {'char': 1,
               'int': 4,
@@ -246,7 +246,67 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
 
     # Analyse reference declaration
     ref_decl_type_ast, ref_decl_l = ref_decl_namespace[ref_name]
+
+    def decl_l_fit_word_size(decl_l):
+        decl_l_cum = list(np.cumprod(ref_decl_l))
+        print(f'{decl_l_cum=}')
+
+        if 0:
+            # Add memory paddind
+            # Find where insert memory padding
+            ID = 1
+            if DMA_SIZE >= decl_l_cum[-1]:
+                ID = -1
+            else:
+                while ID + 1 < len(decl_l_cum) and DMA_SIZE > decl_l_cum[ID + 1]:
+                    ID += 1
+
+            print(f'{ID=} -> {decl_l_cum[ID]=}')
+
+            if decl_l_cum[ID] % WORD_SIZE == 0:
+                return decl_l
+
+            # if ID == -1:  # Last col
+            #     log.warning("READ outside of allocated memory")
+            #     return decl_l
+
+            if ID == 1:  # First col
+                decl_l[ID] += (WORD_SIZE - (decl_l[ID] % WORD_SIZE))
+                return decl_l
+
+            cur = decl_l_cum[ID] + (WORD_SIZE - (decl_l_cum[ID] % WORD_SIZE))
+            print(f"Want {decl_l_cum[ID]=} -> {cur=}")
+
+            from math import gcd
+            print(f"range = [{decl_l_cum[ID - 1]}  :  {cur // decl_l[ID] + 1}]")
+            for new_l in range(decl_l[ID - 1], cur // decl_l[ID] + 1 + 1):
+                new_lp = cur / new_l
+                if new_lp < decl_l[ID]:
+                    continue
+                if new_lp == int(new_lp):
+                    new_lp = int(new_lp)
+                    print((f"!HIT {new_lp} x {new_l} = {cur}"))
+                    decl_l[ID] = new_lp
+                    decl_l[ID - 1] = new_l
+                    return decl_l
+        elif 0:
+            ID = 1
+            pading = (((WORD_SIZE - ((decl_l[ID] * decl_l[ID - 1]) % WORD_SIZE))) % WORD_SIZE)
+            pading = int(pading)
+            log.debug(f'{decl_l[ID]=} {pading=} => {(decl_l[ID]+pading)/decl_l[ID]=}')
+            decl_l[ID] += pading
+            return decl_l
+        else:
+            return decl_l
+
+        log.error(f"Indisisible memory declaration {decl_l}; We must add a lot of padding !")
+        raise Exception(f"Invalid memory declaration: {decl_l}")
+
+    ref_decl_l = decl_l_fit_word_size(ref_decl_l)
     ref_decl_l_cum = list(np.cumprod(ref_decl_l))
+
+    # Update namespace
+    ref_decl_namespace[ref_name] = (ref_decl_type_ast, ref_decl_l)
 
     # if 'input' in ref_name:
     #     print("-- no input")
@@ -263,7 +323,7 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
         # Compute memory footprint for this namespace
         _, _, pr = c_ast_ref_to_interval(ref, namespace=namespace)
         # Compute poly area
-        area = ref_decl_l[0] # Type size
+        area = ref_decl_l[0]  # Type size
         for ir, (interval, deps) in enumerate(reversed(pr)):
             v = interval.area()
             if v == 0:  # Not a dim in the array
@@ -278,6 +338,9 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
 
         # eq = f"{v}" + (f"*{ref_decl_l_cum[ir]}" if ir != 0 else "")
         # log.debug(f"AREA = {area} = {eq}  @ {pr} @ ns={namespace}")
+
+        # Fix area to word size
+        # area += (WORD_SIZE - area % WORD_SIZE) % WORD_SIZE
         return area
 
     # Compute poly ref area
@@ -388,7 +451,7 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
 
     # Find the best division
     # TODO: Algo: binary search for perfs
-    # Compute new loop poly
+    # Compute new loopp poly
     for block_size in reversed(range(1, il_repeat + 1)):
         poly_loop_namespace_partionned = namespace_reduction(
             poly_loop_namespace, loops_access_names, il_name, block_size
@@ -451,7 +514,7 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
     if IR == -1:  # Array < DMA
         log.debug("--- WRAP MODE")
         # Compute memory mapping
-        dma_transfer_size = ref_decl_l_cum[-1]
+        dma_transfer_size = loops_ref_access_l_cum[-1]
         dma_transfer_size_eff = dma_transfer_size
         mapping_ram_name = ref_name
         # Init DMA
@@ -556,7 +619,7 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
                                         {il_low_name}++){{
                                     }}""")
         for_low.stmt = c_ast.Compound(inner_for)
-        
+
         # Update il_name
         il_name_subst_ast = expr_c_to_ast(f"{il_high_name} * {block_size} + {il_low_name}")
         at.c_ast_replace_id(for_low, il_name, il_name_subst_ast)

@@ -22,15 +22,16 @@
 #include <assert.h>
 
 
+//#define HW_ALIGN_CONSTRAINTS
 #ifdef HW_ALIGN_CONSTRAINTS
 
 #define __SMA_RAM_PTR
-#define __SMA_RAM __attribute__((aligned(8)))
+#define __SMA_RAM __attribute__((aligned(WORD_SIZE)))
 
 #define SMA_ALIGNMENT WORD_SIZE
 #define SMA_MULTIPLICITY WORD_SIZE
 
-#define __DMA_EFF_SIZE (DMA_SIZE + SMA_MULTIPLICITY * 2)
+#define __DMA_EFF_SIZE (DMA_SIZE + SMA_MULTIPLICITY)
  
 typedef char __sma__dma_t;
 __sma__dma_t __sma_dma[NR_DMA][__DMA_EFF_SIZE];
@@ -48,21 +49,21 @@ void __sma_dma_init(uint8_t index, __SMA_RAM_PTR void *adr, uint16_t size){
     assert((uint64_t)__sma_base_adr[index] % SMA_ALIGNMENT == 0);
     size += __sma_offset[index];
     // Multiplicity
-    __sma_size[index] = size + (SMA_MULTIPLICITY - (size % SMA_MULTIPLICITY));
+    __sma_size[index] = size + ((SMA_MULTIPLICITY - (size % SMA_MULTIPLICITY)) % SMA_MULTIPLICITY);
     assert(__sma_size[index] % SMA_MULTIPLICITY == 0);
     assert(__sma_size[index] < __DMA_EFF_SIZE);
     // printf("Initialise DMA %d @ %p->%p # %d->%d\n", index, adr, __sma_base_adr[index], size, __sma_size[index]);
 }
 
 void __sma_dma_load(uint8_t index){
-    assert(__sma_size[index] < __DMA_EFF_SIZE);
+    assert(__sma_size[index] <= __DMA_EFF_SIZE);
     assert(__sma_size[index] % SMA_MULTIPLICITY == 0);
     assert((uint64_t)__sma_base_adr[index] % SMA_ALIGNMENT == 0);
     memcpy(&__sma_dma[index][0], __sma_base_adr[index], __sma_size[index]);
 }
 
 void __sma_dma_store(uint8_t index){
-    assert(__sma_size[index] < __DMA_EFF_SIZE);
+    assert(__sma_size[index] <= __DMA_EFF_SIZE);
     assert(__sma_size[index] % SMA_MULTIPLICITY == 0);
     assert((uint64_t)__sma_base_adr[index] % SMA_ALIGNMENT == 0);
     memcpy(__sma_base_adr[index], &__sma_dma[index][0], __sma_size[index]);

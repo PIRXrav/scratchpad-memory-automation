@@ -10,14 +10,10 @@ def shell(cmd, verbose=False):
     """Shell cmd wrapper"""
     if verbose:
         print(cmd)
-    try:
-        res = subprocess.check_output(cmd, shell=True).decode('UTF-8')
-        if verbose:
-            print(res)
-    except subprocess.CalledProcessError as grepexc:
-        print("error code", grepexc.returncode, grepexc.output.decode('UTF-8'))
-        return grepexc.returncode
-    return 0
+    res = subprocess.check_output(cmd, shell=True).decode('UTF-8')
+    if verbose:
+        print(res)
+    return res
 
 def cpp(code, config):
     """Python CPP wrapper"""

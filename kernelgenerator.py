@@ -234,6 +234,7 @@ class Kernel:
         return code
 
     def generate_benchmark(self):
+        import outpreprocessor as opp
         decl_names = [d.name for d in self.decls]
         decl_names_test = map(lambda s: s + "_test", decl_names)
         fun_name = fun_get_name(self.fun)
@@ -255,7 +256,7 @@ class Kernel:
         # RAM data
         for decl_name, (ast_type, l) in self.decl_l_namespace.items():
             ram_name = decl_name + '_test' + "".join(reversed(list((f"[{i}]" for i in l[1:]))))
-            code += f'{" ".join(ast_type.type.names)} {ram_name};\n'
+            code += f"{f'__SMA_RAM '+ast_type.type.names[-1]} {ram_name};\n"
         # RAM data reference
         for decl_name, (ast_type, l) in self.decl_l_namespace_reference.items():
             ram_name = decl_name + "".join(reversed(list((f"[{i}]" for i in l[1:]))))
@@ -268,14 +269,16 @@ class Kernel:
         for decl_name, (ast_type, decl_l) in self.decl_l_namespace_reference.items():
             code += self.gen_hash_code(decl_name, decl_l)
             # code += f"    for (size_t i = 0; i < sizeof({dn}); i++) {{hash += *((unsigned char*){dn}+i);}}\n"
-        code += '    printf("%ld==%ld #nberr=%ld\\n", hash, hash_test, nb_err);\n'
+        code += '    printf("PYTHON_RES = {\\"hash\\": %ld, \\"hasht\\": %ld, \\"err\\": %ld}\\n", hash, hash_test, nb_err);\n'
         code += '    return nb_err ? 42 : 0;\n'
         code += "}\n"
         code += "void prebench(void){\n"
         for decl_name, (ast_type, decl_l) in self.decl_l_namespace_reference.items():
             code += self.gen_init_code(decl_name, decl_l)
-        # for dn in decl_names:
-        #     code += f"    for (size_t i = 0; i < sizeof({dn}); i++) {{*((char*){dn}+i) = (char)i;}}\n"
+            code += f'    printf("{decl_name} = %p\\n", {decl_name});'
+            decl_name += '_test'
+            code += f'    printf("{decl_name} = %p\\n", {decl_name});'
+
         code += "}\n"
         code += "int main(void){{\n"
         code += f'    printf("Run benchmark {fun_name}\\n");\n'
@@ -288,7 +291,7 @@ class Kernel:
         code += f"{ast_to_c(c_to_ast(self.sectionspp['FUN']).ext[0].body)}"
         code += "    /* postbench */\n"
         code += '    printf("postbench ...\\n");\n'
-        code += "    return postbench();"
+        code += "    exit(postbench());\n"
         code += "}}\n"
         print(at.c_highlight(code))
         return filename, code
@@ -341,14 +344,14 @@ class Kernel:
         def run_simu(gdbname, binname):
             # Run
             cmd = f"gdb --batch --command={gdbname} --args {binname}"
-            ret = tc.shell(cmd, verbose=True)
-            print(f"retcode = {ret}")
-            if ret:
-                if ret == 42:  # Value error
-                    pass
-                else:
-                    raise Exception(f"Error occured during {cmd}")
-            return ret
+            # cmd = binname
+            res = tc.shell(cmd, verbose=True)
+            # Process result
+            for line in res.split('\n'):
+                if 'PYTHON_RES' in line:
+                    PYTHON_RES = eval(line.split('=')[1])
+                    print(PYTHON_RES)
+            return int(PYTHON_RES['err'])
 
         self.process(do_mem_mapping=True)
         binname = PREFIX + "sma_bin"

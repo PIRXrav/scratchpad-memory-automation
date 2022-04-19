@@ -12,3 +12,5 @@ res.c
 *.log
 
 .coverage
+
+res.h

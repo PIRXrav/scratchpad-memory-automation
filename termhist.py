@@ -3,7 +3,7 @@ import numpy as np
 
 def concaty(*args):
     return '\n'.join(map(lambda t: ''.join(t), zip(*map(lambda s: s.split('\n'), args))))
-    
+
 
 def termhist(a, title, xsize=10, ysize=10):
     values, _ = np.histogram(a, bins=xsize)

@@ -88,10 +88,11 @@ __SMA_RAM_PTR void * __sma_base_adr[NR_DMA];
 void __sma_dma_init(uint8_t index, __SMA_RAM_PTR void *adr, uint16_t size){
     __sma_base_adr[index] = adr;
     __sma_size[index] = size;
-    /*
+    
     if(!(__sma_size[index] <= DMA_SIZE)){
         exit(1);
     }
+    /*
     if(!(__sma_size[index] % WORD_SIZE == 0)){
         exit(2);
     }

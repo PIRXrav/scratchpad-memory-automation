@@ -22,6 +22,7 @@ import logging
 import sympy
 from copy import copy
 import polyhedron as poly
+from gencode_dma import Gencode
 
 log = logging.getLogger(__name__)
 
@@ -33,25 +34,6 @@ TYPES_SIZE = {'char': 1,
               'int': 4,
               'float': 4,
               'double': 8}
-
-
-class Gencode:
-    @classmethod
-    def cgen_dma_init(self, index, adr, size):
-        return f"DMA_INIT({index}, {adr}, {size});"
-
-    @classmethod
-    def cgen_dma_ld(self, index, adr, size):
-        return f"DMA_LD({index})"
-
-    @classmethod
-    def cgen_dma_st(self, index, adr, size):
-        return f"DMA_ST({index})"
-
-    @classmethod
-    def cgen_static_mac(self, A, B):
-        return "+".join(f"(({a}) * ({b}))" for a, b in zip(A, B))
-
 
 def do_memory_mapping(ast, ref_decl_namespace):
     log.debug(f"{ref_decl_namespace=}")

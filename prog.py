@@ -19,7 +19,7 @@ class Prog:
     def append_mv(self, rel_addr_dst, rel_addr_src):
         self.prog.append((self.MV, rel_addr_dst, rel_addr_src))
 
-    def evaluate(self, dma):
+    def gen_evaluation(self, dma):
         count_total = len(self.prog)
         count_ldi = len(list(filter(lambda x: x[0] == 'ldi', self.prog)))
         count_ldo = len(list(filter(lambda x: x[0] == 'ldo', self.prog)))
@@ -36,12 +36,40 @@ class Prog:
                'quality global': count_mv / (count_ldi + count_ldo + count_sto) / dma * 3}
         print('=========== EVALUATE PROG ===========')
         print('\n'.join((f'{k:>20}; {v}' for k, v in res.items())))
-        AnalyserDmaValueRepartitionProgVisitor(self)
         return res
 
+    def gen_hist_dma_repartition(self, xsize=20, ysize=20):
+        """Generate ascii histogram of DMA rd/wr
+        """
+        class AnalyserDmaValueRepartitionProgVisitor(ProgVisitor):
+            """Analyse DMA value repartition
+            """
+            def __init__(self, prog):
+                self.iaddrs = []
+                self.oaddrs = []
+                self.visit(prog)
+                self.datas = (self.iaddrs, self.oaddrs)
+                self.names = ('dma i addrs', 'dma o addrs')
+
+            def visit_ldi(self, rel_addr, size, *args, **kwargs):
+                pass
+
+            def visit_ldo(self, rel_addr, size, *args, **kwargs):
+                pass
+
+            def visit_sto(self, rel_addr, size, *args, **kwargs):
+                pass
+
+            def visit_mv(self, rel_addr_dst, rel_addr_src, *args, **kwargs):
+                self.iaddrs.append(rel_addr_src)
+                self.oaddrs.append(rel_addr_dst)
+
+        pv = AnalyserDmaValueRepartitionProgVisitor(self)
+        from termhist import termhists
+        return termhists(pv.datas, pv.names, xsize=xsize, ysize=ysize)
+
 class ProgVisitor:
-    """
-    Using a visitor pattern for different gencode
+    """Using a visitor pattern for different gencode
     """
     def visit(self, prog, *args, **kwargs):
         for instr in prog.prog:
@@ -53,7 +81,7 @@ class ProgVisitor:
                 self.visit_sto(instr[1], instr[2], *args, *kwargs)
             elif instr[0] == Prog.MV:
                 self.visit_mv(instr[1], instr[2], *args, *kwargs)
-                
+
     def visit_ldi(self, rel_addr, size, *args, **kwargs):
         raise Exception('abstract method')
 
@@ -65,32 +93,3 @@ class ProgVisitor:
 
     def visit_mv(self, rel_addr_dst, rel_addr_src, *args, **kwargs):
         raise Exception('abstract method')
-
-
-class AnalyserDmaValueRepartitionProgVisitor(ProgVisitor):
-    """
-    Analyse DMA value repartition
-    """
-    def __init__(self, prog):
-        self.iaddrs = []
-        self.oaddrs = []
-        self.visit(prog)
-        from termhist import termhists, termhist
-        datas = (self.iaddrs, self.oaddrs)
-        names = ('dma i addrs', 'dma o addrs')
-        # for o in zip(datas, names):
-        #     print(termhist(*o, xsize=128, ysize=20))
-        print(termhists(datas, names, xsize=30, ysize=20))
-
-    def visit_ldi(self, rel_addr, size, *args, **kwargs):
-        pass
-
-    def visit_ldo(self, rel_addr, size, *args, **kwargs):
-        pass
-
-    def visit_sto(self, rel_addr, size, *args, **kwargs):
-        pass
-
-    def visit_mv(self, rel_addr_dst, rel_addr_src, *args, **kwargs):
-        self.iaddrs.append(rel_addr_src)
-        self.oaddrs.append(rel_addr_dst)

@@ -2,13 +2,11 @@ from pycparser import parse_file, c_generator, CParser
 from pycparser import c_ast
 from pycparser import plyparser
 
-from pygments import highlight
-from pygments.lexers import CLexer
-from pygments.formatters import TerminalFormatter
-
 from itertools import chain
 from more_itertools import one
 from copy import deepcopy
+
+from ctools import c_highlight
 
 def file_to_ast(file, use_cpp=True):
     return parse_file(file, use_cpp=True)
@@ -68,11 +66,6 @@ def ast_to_c(ast):
 
 def ast_to_c_highlight(ast):
     return c_highlight(ast_to_c(ast))
-
-
-def c_highlight(code):
-    formatter = TerminalFormatter(bg="dark", linenos=True)
-    return highlight(code, CLexer(), formatter)
 
 
 def c_ast_for_get_l(node):

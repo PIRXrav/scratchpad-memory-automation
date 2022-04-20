@@ -17,3 +17,7 @@ class Gencode:
     @classmethod
     def cgen_static_mac(self, A, B):
         return "+".join(f"(({a}) * ({b}))" for a, b in zip(A, B))
+
+
+def fix_size_to_word_size(size, word_size):
+    return size + ((word_size - (size % word_size)) % word_size)

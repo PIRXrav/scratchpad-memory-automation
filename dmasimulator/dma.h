@@ -23,7 +23,15 @@
 
 
 //#define HW_ALIGN_CONSTRAINTS
-#ifdef HW_ALIGN_CONSTRAINTS
+#ifdef DO_NOT_DEFINE_ME
+
+
+/*
+
+With this arch, we must provide masking to avoid side effects !
+
+*/
+#error With this arch, we must provide masking to avoid side effects !
 
 #define __SMA_RAM_PTR
 #define __SMA_RAM __attribute__((aligned(WORD_SIZE)))
@@ -92,13 +100,14 @@ void __sma_dma_init(uint8_t index, __SMA_RAM_PTR void *adr, uint16_t size){
     if(!(__sma_size[index] <= DMA_SIZE)){
         exit(1);
     }
-    /*
+#ifdef HW_WORD_CONSTRAINTS
     if(!(__sma_size[index] % WORD_SIZE == 0)){
         exit(2);
     }
     if(!((uint64_t)__sma_base_adr[index] % WORD_SIZE == 0)){
         exit(10);
-    }*/
+    }
+#endif
 }
 
 void __sma_dma_load(uint8_t index){

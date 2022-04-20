@@ -571,12 +571,14 @@ def algo2(y, x, Dky, Dkx, dma):
         print(f'o:{o} -> {s}')
 
 
-def export(states, tensor_i, tensor_o, dma):
+from gencode_dma import fix_size_to_word_size
+
+def export(states, tensor_i, tensor_o, dma, word_size):
     state = [-1, -1]
     prog = Prog()
 
     def CS(tensor, adr):
-        return min(tensor.size, adr + dma) - adr
+        return fix_size_to_word_size(min(tensor.size, adr + dma) - adr, word_size)
 
     def transactions(tensor_o):
         dmai = dma_load(tensor_i, state[0], dma)

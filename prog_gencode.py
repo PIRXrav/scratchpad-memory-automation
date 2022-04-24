@@ -1,3 +1,6 @@
+"""Prog code generator
+"""
+
 from prog import ProgVisitor
 
 # OUTDATED
@@ -96,3 +99,31 @@ class CMvTabGencodeProgVisitor(ProgVisitor):
 
     def __str__(self):
         return "__str__"
+
+
+# TODO GenericGencodeProgVisitor
+# for X in range (XXX){
+#   BASE_ADDR_I[XXX] = .
+#   SIZE_I[XXX]      = .
+#   BASE_ADDR_O[XXX] = .
+#   SIZE_O[XXX]      = .
+#   BASE_REPEAT[XXX] = .
+#   DMA_INIT(0, (char *)tab0 + 64, 128);
+#   DMA_INIT(1, (char *)tab1 + 64, 128);
+#   DMA_INIT(2, (char *)_SMA_INDIRECTION + 64, 128);
+#
+#   if(need_update0):
+#     DMA_LD(0);
+#   if(need_update0):
+#     DMA_LD(1);
+#
+#   for j in BASE_REPEAT[XXX]{
+#     REL_CPT = REL[XXX][j]
+#     DMA_LD(2)
+#     for (i = 0; i < REL_CPT; i++) {
+#       *((int8_t *)DMA_RW(1, DMA_RW(2, i*2))) = *((int8_t *)DMA_RW(0, DMA_RW(2, i*2+1)));
+#     }
+#   }
+#   if(need_update1):
+#     DMA_ST(1);
+# }

@@ -26,3 +26,20 @@ def c_highlight(code):
     """
     formatter = TerminalFormatter(bg="dark", linenos=True)
     return highlight(code, CLexer(), formatter)
+
+
+def nparray_to_c(type, name, array):
+
+    def converter(array):
+        if len(array.shape) == 1:
+            return '{' + ','.join(map(str, array)) + '}'
+        else:
+            return '{' + ','.join(map(converter, array)) + '}'
+
+    size = '[' + ']['.join(map(str, array.shape)) + ']'
+    return f'{type} {name}{size} = {converter(array)};\n'
+
+
+if __name__ == '__main__':
+    import numpy as np
+    print(c_highlight(nparray_to_c('int', 'x', np.arange(128).reshape(2, 2, 8, 4))))

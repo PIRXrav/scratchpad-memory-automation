@@ -91,7 +91,7 @@ class CMvTabGencodeProgVisitor(ProgVisitor):
     def export(self):
         self.citab = f'const int16_t itab[{self.mv_cpt}] = {{{", ".join(map(str, self.itab))}}};\n'
         self.cotab = f'const int16_t otab[{self.mv_cpt}] = {{{", ".join(map(str, self.otab))}}};\n'
-        self.coreloop = 'int32_t mv_cpt = 0;\n' +  '\n'.join(self.res)
+        self.coreloop = 'int32_t mv_cpt = 0;\n' + '\n'.join(self.res)
         return self.citab, self.cotab, self.coreloop
 
     def __str__(self):

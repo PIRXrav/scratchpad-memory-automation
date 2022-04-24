@@ -574,6 +574,9 @@ def algo2(y, x, Dky, Dkx, dma):
 from gencode_dma import fix_size_to_word_size
 
 def export(states, tensor_i, tensor_o, dma, word_size):
+    tensor_i = tensor_i.copy()
+    tensor_o = tensor_o.copy()
+    
     state = [-1, -1]
     prog = Prog()
 
@@ -593,21 +596,20 @@ def export(states, tensor_i, tensor_o, dma, word_size):
     for i, o in states:
         if state[0] != i:
             prog.append_ldi(i, CS(tensor_i, i))
-            # prog += f'DMA_LD(dma_i, {i})\n'
             state[0] = i
-            transactions(tensor_o)
 
         if state[1] != o:
-            if state[1] != -1: # Small optim
+            if state[1] != -1: # Remove first useless load
                 prog.append_sto(state[1], CS(tensor_o, state[1]))
-                # prog += f'DMA_ST(dma_o, {state[1]})\n'
             prog.append_ldo(o, CS(tensor_o, o))
-            # prog += f'DMA_LD(dma_o, {o})\n'
             state[1] = o
-            transactions(tensor_o)
+        
+        transactions(tensor_o)
     
     prog.append_sto(o, CS(tensor_o, o))
-    assert np.all(tensor_o == -1)
+    if not np.all(tensor_o):
+        raise Exception(f'Invalid algo: \n{tensor_o} w {np.all(tensor_o)}')
+
     return prog
 
 

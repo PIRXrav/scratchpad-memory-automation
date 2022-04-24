@@ -6,20 +6,19 @@ import time
 from numba import jit, njit
 from prog import Prog
 
-WORD_SIZE = 8
 
 @njit(nogil=True)
-def fast_explore_numba(tensor_i, tensor_o, dma, history_stack):
+def fast_explore_numba(tensor_i, tensor_o, dma, word_size, history_stack):
 
     def counte_states_as_index(tensor_i, tensor_o, ind_o):
         ind_i = tensor_o.ravel()[ind_o]
         return ((min(ind_i + 1, tensor_i.size - dma + 1) - max(0, ind_i - dma + 1)) *
                 (min(ind_o + 1, tensor_o.size - dma + 1) - max(0, ind_o - dma + 1)))
 
-    index_to_count_states = np.array([counte_states_as_index(tensor_i, tensor_o, ind_o) for ind_o in range(tensor_o.size)])
+    index_to_count_states = np.array([counte_states_as_index(tensor_i, tensor_o, i) for i in range(tensor_o.size)])
     # print(index_to_count_states)
 
-    dept = 0  
+    dept = 0
     while not np.all(index_to_count_states == 0):
         # Explore the most critical index
         vmin = np.inf
@@ -40,15 +39,15 @@ def fast_explore_numba(tensor_i, tensor_o, dma, history_stack):
         vmin = np.inf
         ind_o = ind
         ind_i = tensor_o.ravel()[ind_o]
-        for i in range(max(0, ind_i - dma + 1), min(ind_i + 1, ind_i + 1)):  # tensor_i.size - dma + 1
-            for o in range(max(0, ind_o - dma + 1), min(ind_o + 1, ind_o + 1)):  # tensor_o.size - dma + 1
-                if i % WORD_SIZE != 0:
+        for i in range(max(0, ind_i - dma + 1), min(ind_i + 1, tensor_i.size)):  # tensor_i.size - dma + 1
+            for o in range(max(0, ind_o - dma + 1), min(ind_o + 1, tensor_o.size)):  # tensor_o.size - dma + 1
+                if i % word_size != 0:
                     continue
-                if o % WORD_SIZE != 0:
+                if o % word_size != 0:
                     continue
                 # available_states
                 test = 0
-                for k in range(o, o + dma - 1 + 1):  # We can only hit here
+                for k in range(o, min(o + dma - 1 + 1, tensor_o.size)):  # We can only hit here
                     # +1 for range; -1 for loop o >= max(0, k - DMA + 1)
                     loc_ind_i = tensor_o.ravel()[k]
                     test -= index_to_count_states[k] != 0 and (i >= loc_ind_i - dma + 1 and i < loc_ind_i + 1)
@@ -68,14 +67,13 @@ def fast_explore_numba(tensor_i, tensor_o, dma, history_stack):
         history_stack[dept] = sel_state
 
         # update state_result (remove catched values)
-        for io in range(sel_state[1], sel_state[1] + dma):
+        for io in range(sel_state[1], min(sel_state[1] + dma, tensor_o.size)):
             vo = tensor_o.ravel()[io]
             if vo >= sel_state[0] and vo < sel_state[0] + dma:
                 index_to_count_states[io] = 0
         # print('sel_state', sel_state)
         # print('index_to_count_states', index_to_count_states)
         # print('history_stack', history_stack)
-
         dept += 1
 
     # print(f'HIT! : {dept} {path}')
@@ -102,11 +100,11 @@ def tsp_solve(states):
     permutation, cost = solve_tsp_local_search(distances)
     return [cost, np.array(states)[permutation]]
 
-def run(tensor_i, tensor_o, dma):
+def run(tensor_i, tensor_o, dma, word_size):
     print('================== fast_explore_numba ====================(v2)')
     start_time = time.time()
     history_stack = np.zeros((tensor_o.size, 2), dtype=np.int32)
-    dept = fast_explore_numba(tensor_i, tensor_o, dma, history_stack)
+    dept = fast_explore_numba(tensor_i, tensor_o, word_size, dma, history_stack)
     best = [dept, history_stack[:dept]]
     print(f"Got states: {list(map(tuple, best[1]))}")
     print(f"Unoptimized cost: {3*best[0]}")
@@ -117,4 +115,3 @@ def run(tensor_i, tensor_o, dma):
     print(f"Got states: {list(map(tuple, best[1]))}")
     print(f"cost: {best[0]}")
     return best
-

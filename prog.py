@@ -1,3 +1,5 @@
+import numpy as np
+
 class Prog:
     LDI = 'ldi'
     LDO = 'ldo'
@@ -67,6 +69,28 @@ class Prog:
         pv = AnalyserDmaValueRepartitionProgVisitor(self)
         from termhist import termhists
         return termhists(pv.datas, pv.names, xsize=xsize, ysize=ysize)
+    
+    def gen_statistics_dma_adr(self):
+        class MvCollectAddrsProgVisitor(ProgVisitor):
+            """."""
+            def __init__(self, prog):
+                self.itab = []
+                self.otab = []
+                self.visit(prog)
+
+            def visit_mv(self, rel_addr_dst, rel_addr_src):
+                self.itab.append(rel_addr_src)
+                self.otab.append(rel_addr_dst)
+
+            def export(self):
+                return np.array(self.itab, dtype=np.int16), np.array(self.otab, dtype=np.int16)
+
+        itab, otab = MvCollectAddrsProgVisitor(self).export()
+        from numpy import asarray
+        from numpy import savetxt
+        savetxt('itab', itab)
+        savetxt('otab', otab)
+        
 
 class ProgVisitor:
     """Using a visitor pattern for different gencode
@@ -83,13 +107,34 @@ class ProgVisitor:
                 self.visit_mv(instr[1], instr[2], *args, *kwargs)
 
     def visit_ldi(self, rel_addr, size, *args, **kwargs):
-        raise Exception('abstract method')
+        pass
 
     def visit_ldo(self, rel_addr, size, *args, **kwargs):
-        raise Exception('abstract method')
+        pass
 
     def visit_sto(self, rel_addr, size, *args, **kwargs):
-        raise Exception('abstract method')
+        pass
 
     def visit_mv(self, rel_addr_dst, rel_addr_src, *args, **kwargs):
-        raise Exception('abstract method')
+        pass
+
+if __name__ == '__main__':
+    from test_coalescing import Coalescing
+    from optimizer import toeplitz, export
+    import numpy as np
+
+    # DMA config
+    WORD_SIZE = 8
+    DMA = 128  # 1024o
+    # Input
+    x = 16
+    y = 16
+    # Filter shape
+    Dkx = 2
+    Dky = 2
+    DTYPE = "int8_t"
+    tensor_i = np.arange(x * y, dtype=np.int32).reshape(y, x)  # tab[index] = index !!
+    tensor_o = toeplitz(tensor_i, y, x, Dky, Dkx)
+
+    prog = Coalescing(tensor_i, tensor_o, 'TODO:TYPESIZE', DMA, WORD_SIZE).export()
+    r = prog.gen_statistics_dma_adr()

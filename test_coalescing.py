@@ -1,6 +1,6 @@
 from optimizer import toeplitz, export
 from coalescing_optimizer import run
-from prog_gencode import CMvTabGencodeProgVisitor
+from prog_gencode import CMvTabGencodeProgVisitor, GenericGencodeProgVisitor
 import numpy as np
 import ctools
 
@@ -33,6 +33,12 @@ class Coalescing:
         return self.prog
 
     def benchmark(self):
+        framechain = GenericGencodeProgVisitor(self.prog, self.dma, self.word_size).export()
+        base_size, arr = framechain.as_array(self.word_size)
+        print(framechain)
+        print(base_size)
+        print(arr, len(arr))
+        exit(1)
         progcode = CMvTabGencodeProgVisitor(self.prog, "tensor_i", "tensor_o_test", self.dma, self.dtype)
         citab, cotab, coreloop = progcode.export()
 
@@ -162,7 +168,8 @@ np.random.seed(12)
 
 tensor_i = np.arange(x * y, dtype=np.int32).reshape(y, x)  # tab[index] = index !!
 tensor_o = toeplitz(tensor_i, y, x, Dky, Dkx)
-tensor_o = np.random.randint(tensor_i.size, size=(78, 43))  # Random shape with tensor_i values
-
+tensor_o = np.random.randint(tensor_i.size, size=(4, 4))  # Random shape with tensor_i values
+# tensor_o = tensor_i.copy()
+# tensor_o = np.zeros((45, 56))
 Coala = Coalescing(tensor_i, tensor_o, DTYPE, 'TODO:TYPESIZE', DMA, WORD_SIZE)
 Coala.benchmark()

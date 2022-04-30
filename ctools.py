@@ -4,6 +4,7 @@
 from pygments import highlight
 from pygments.lexers import CLexer
 from pygments.formatters import TerminalFormatter
+import numpy as np
 
 def ppdict(dict):
     """Pretty print dict
@@ -40,6 +41,10 @@ def nparray_to_c(type, name, array):
     return f'{type} {name}{size} = {converter(array)};\n'
 
 
+def bstr_to_c(name, bstr):
+    arr = np.frombuffer(bstr, np.uint8)
+    return nparray_to_c('uint8_t', name, arr)
+
+
 if __name__ == '__main__':
-    import numpy as np
     print(c_highlight(nparray_to_c('int', 'x', np.arange(128).reshape(2, 2, 8, 4))))

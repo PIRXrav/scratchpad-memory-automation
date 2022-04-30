@@ -1,25 +1,10 @@
-#pragma once
 
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-
-
-/******************************* Software part ********************************/
-
-#define DMA_SIZE 128
-#define NR_DMA 3
-#define WORD_SIZE 8
-
-#define DMA_INIT(index, adr, size) __sma_dma_init(index, adr, size)
-#define DMA_LD(index) __sma_dma_load(index)
-#define DMA_ST(index) __sma_dma_store(index)
-#define DMA_RW(index, reladr)  __sma_dma_access(index, reladr)
-#define MIN(a, b) ((a) < (b) ? (a) : (b)) 
+#include "dma.h"
+#include <assert.h>
+#include "log.h"
 
 /******************************* Hardware part ********************************/
 
-#include <assert.h>
 
 
 //#define HW_ALIGN_CONSTRAINTS
@@ -96,31 +81,39 @@ __SMA_RAM_PTR void * __sma_base_adr[NR_DMA];
 void __sma_dma_init(uint8_t index, __SMA_RAM_PTR void *adr, uint16_t size){
     __sma_base_adr[index] = adr;
     __sma_size[index] = size;
-    
+    log_debug("DMA(%d, @=%p, #=%d) INIT", index, __sma_base_adr[index], __sma_size[index]);
     if(!(__sma_size[index] <= DMA_SIZE)){
-        exit(1);
+        log_fatal("DMA [%d]: invalid initialisation size %d > DMA_SIZE\n", index, size);
+        exit(100);
     }
 #ifdef HW_WORD_CONSTRAINTS
     if(!(__sma_size[index] % WORD_SIZE == 0)){
-        exit(2);
+        log_fatal("DMA [%d]: invalid initialisation size %d % WORD_SIZE != 0\n", index, size);
+        exit(101);
+        
     }
     if(!((uint64_t)__sma_base_adr[index] % WORD_SIZE == 0)){
-        exit(10);
+        log_fatal("DMA [%d]: invalid initialisation adr %p % WORD_SIZE != 0\n", index, adr);
+        exit(102);
     }
 #endif
 }
 
 void __sma_dma_load(uint8_t index){
+    log_debug("DMA(%d, @=%p, #=%d) LD", index, __sma_base_adr[index], __sma_size[index]);
     memcpy(&__sma_dma[index][0], __sma_base_adr[index], __sma_size[index]);
 }
 
 void __sma_dma_store(uint8_t index){
+    log_debug("DMA(%d, @=%p, #=%d) ST", index, __sma_base_adr[index], __sma_size[index]);
     memcpy(__sma_base_adr[index], &__sma_dma[index][0], __sma_size[index]);
 }
 
 void *__sma_dma_access(uint8_t index, uint16_t reladr){
+    log_trace("DMA(%d, @=%p, #=%d) RW rel@=%d", index, __sma_base_adr[index], __sma_size[index], reladr);
     if(!(reladr < DMA_SIZE)){
-        exit(20);
+        log_fatal("DMA [%d]: invalid read index %d >= DMA_SIZE\n", index, reladr);
+        exit(200);
     }
     return &__sma_dma[index][reladr];
 }

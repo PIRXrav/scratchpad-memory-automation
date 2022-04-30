@@ -139,13 +139,13 @@ class Frame:
         self.next_size = next_size
         base_size = 16 * 2 + len(self.rawa) * 2
         paddind = (word_size - (base_size % word_size)) % word_size
-        fmt = 'H' * 8 + 'H' * len(self.rawa) + 'x' * paddind
-        payload = [self.addr_i, self.size_i, self.addr_o, self.size_o,
-                   self.addr_store, self.size_store, self.nb_moves, self.next_size]
-        data = self.rawa
+        fmt = 'h' * 8 + 'h' * len(self.rawa) + 'x' * paddind
+        header = [self.addr_i, self.size_i, self.addr_o, self.size_o,
+                  self.addr_store, self.size_store, self.nb_moves, self.next_size]
+        payload = self.rawa
         pad = [0] * paddind
-        print(payload, data, pad)
-        self.raw = struct.pack(fmt, *chain(payload, data, pad))
+        print(fmt, header, payload, pad)
+        self.raw = struct.pack(fmt, *chain(header, payload))
         return len(self.raw)
 
     def as_array(self):
@@ -165,7 +165,7 @@ class FrameChain:
 
     def _push(self):
         self._frames.append(self._head)  # Push head frame
-        self.head = Frame(self.dma)  # Create new frame
+        self._head = Frame(self.dma)  # Create new frame
 
     def ldi(self, addr, size):
         if self._head.addr_i != -1:  # Push frame if needed

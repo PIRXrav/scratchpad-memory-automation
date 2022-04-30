@@ -33,26 +33,38 @@ class Coalescing:
         return self.prog
 
     def benchmark(self):
-        framechain = GenericGencodeProgVisitor(self.prog, self.dma, self.word_size).export()
-        base_size, arr = framechain.as_array(self.word_size)
-        print(framechain)
-        print(base_size)
-        print(arr, len(arr))
-        exit(1)
-        progcode = CMvTabGencodeProgVisitor(self.prog, "tensor_i", "tensor_o_test", self.dma, self.dtype)
-        citab, cotab, coreloop = progcode.export()
-
-        from toolchain import gcc, write_c_file, benchmarkrun, write_file
+        BUIL_DIR = './dmasimulator/genfiles/'   
+        from toolchain import gcc, write_c_file, benchmarkrun, write_file, shell
         from ctools import comment_header
 
         evaluation = self.prog.gen_evaluation(self.dma)
         hist = self.prog.gen_hist_dma_repartition()
+        print(self.prog)
+        if 1:
+            framechain = GenericGencodeProgVisitor(self.prog, self.dma, self.word_size).export()
+            base_size, arr = framechain.as_array(self.word_size)
+            prog_arr_c = ctools.bstr_to_c('_sma_prog0', arr)
+            func = f'prog_mv{self.type_size}'
+            print(framechain)
+            print(base_size)
+            print(arr, len(arr))
+            print(prog_arr_c)
+            decl_c = prog_arr_c
+            prog_c = f'{func}(tensor_i, tensor_o_test, _sma_prog0, {base_size});\n'
+            incs_c = '#include "prog_mv.h"'
+        else:
+            progcode = CMvTabGencodeProgVisitor(self.prog, "tensor_i", "tensor_o_test", self.dma, self.dtype)
+            citab, cotab, coreloop = progcode.export()
+            decl_c = citab + cotab
+            prog_c = coreloop
+            incs_c = ''
 
         code = comment_header("GENERATED FILE: res.h",
                               file="Toeplitz matrix transformation test",
                               **evaluation, rw=hist)
         code += "#pragma once\n"
         code += '#include "dma.h"\n'
+        code += incs_c
         code += "\n"
         code += f"#define X {x}\n"
         code += f"#define Y {y}\n"
@@ -63,16 +75,15 @@ class Coalescing:
         code += f"#define DKX {Dkx}\n"
         code += "\n"
         code += "\n"
-        code += citab
-        code += cotab
+        code += decl_c
         code += "void toeplitz_optim_formv(__SMA_RAM_PTR void *tensor_iraw, __SMA_RAM_PTR void *tensor_o_testraw){\n"
         code += f"    __SMA_RAM_PTR {DTYPE} (*tensor_i)/*Y*/[X] = tensor_iraw;\n"
         code += f"    __SMA_RAM_PTR {DTYPE} (*tensor_o_test)/*TY*/[TX] = tensor_o_testraw;\n"
         code += "\n"
-        code += coreloop
+        code += prog_c
         code += "}\n"
         code += "\n"
-        write_c_file("res.h", code, display_code=True)
+        write_c_file(BUIL_DIR + "res.h", code, display_code=True)
 
         tensor_o_test = np.zeros(tensor_o.size, dtype=np.int32).reshape(tensor_o.shape)
         code = comment_header("GENERATED FILE: res.c",
@@ -119,13 +130,16 @@ class Coalescing:
         code += '    printf("postbench ...\\n");\n'
         code += "    exit(postbench());\n"
         code += "}}\n"
-        write_c_file("res.c", code, display_code=False)
+        write_c_file(BUIL_DIR + "res.c", code, display_code=False)
 
         gdbname, code, dump_file_names = self.generate_benchmark_gdb()
         write_file(gdbname, code)
-        binfile = './koala'
-        gcc(['res.c'], binfile, opts='-DHW_WORD_CONSTRAINTS', verbose=True)
-
+        USER_SRC = 'genfiles/res.c'
+        base_cmd = f'make -C dmasimulator USER_SRC="{USER_SRC}" USER_INC="-Igenfiles"'
+        # build
+        shell(base_cmd + ' all', verbose=True)
+        binfile = './dmasimulator/build/app'
+        # gcc(['res.c'], binfile, opts='-DHW_WORD_CONSTRAINTS', verbose=True)
         cmd = f"gdb --batch --command={gdbname} --args {binfile}"
         res, out = benchmarkrun(cmd, verbose=False)
         print(res)
@@ -148,10 +162,12 @@ class Coalescing:
         code += "c\n"
         return filename, code, dump_file_names
 
-
 # DMA config
 WORD_SIZE = 8
 DMA = 128  # 1024o
+
+DTYPE = "int8_t"
+DTYPE_SIZE = 8
 
 
 # Input
@@ -159,17 +175,15 @@ x = 16
 y = 16
 
 # Filter shape
-Dkx = 2
-Dky = 2
-
-DTYPE = "int8_t"
+Dkx = 1
+Dky = 1
 
 np.random.seed(12)
 
 tensor_i = np.arange(x * y, dtype=np.int32).reshape(y, x)  # tab[index] = index !!
 tensor_o = toeplitz(tensor_i, y, x, Dky, Dkx)
-tensor_o = np.random.randint(tensor_i.size, size=(4, 4))  # Random shape with tensor_i values
+# tensor_o = np.random.randint(tensor_i.size, size=(4, 4))  # Random shape with tensor_i values
 # tensor_o = tensor_i.copy()
-# tensor_o = np.zeros((45, 56))
-Coala = Coalescing(tensor_i, tensor_o, DTYPE, 'TODO:TYPESIZE', DMA, WORD_SIZE)
+# tensor_o = np.zeros((3, 3))
+Coala = Coalescing(tensor_i, tensor_o, DTYPE, DTYPE_SIZE, DMA, WORD_SIZE)
 Coala.benchmark()

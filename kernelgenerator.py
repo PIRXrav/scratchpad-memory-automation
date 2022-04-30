@@ -303,7 +303,7 @@ class Kernel:
         """Benchmark a kernel
         """
 
-        PREFIX = "/tmp/"
+        PREFIX = "./dmasimulator/genfiles/"
         SMA_SOURCE = PREFIX + "sma_source.c"
         SMA_BIN = PREFIX + "sma_bin"
 
@@ -325,19 +325,18 @@ class Kernel:
 
         @timing
         def write_files(hname, hcode, cname, ccode, gdbname, gdbcode):
-            hname = PREFIX + hname
-            cname = PREFIX + cname
+            hname = hname
+            cname = cname
             gdbname = PREFIX + gdbname
-            tc.write_file(hname, hcode)
-            tc.write_file(cname, ccode)
+            tc.write_file(PREFIX + hname, hcode)
+            tc.write_file(PREFIX + cname, ccode)
             tc.write_file(gdbname, gdbcode)
             return hname, cname, gdbname
 
         @timing
-        def build(cnames, binname):
-            files = " ".join(cnames)
-            cmd = f"{CC} {CFLAGS} {LDFLAGS} {files} -I{PREFIX} -o {binname}"
-            ret = tc.shell(cmd)
+        def build(cname, binname):
+            base_cmd = f'make -C dmasimulator USER_SRC="{cname}" USER_INC="-Igenfiles"'
+            ret = tc.shell(base_cmd, verbose=True)
             return ret
 
         @timing
@@ -354,10 +353,10 @@ class Kernel:
             return int(PYTHON_RES['err'])
 
         self.process(do_mem_mapping=True)
-        binname = PREFIX + "sma_bin"
+        binname = './dmasimulator/build/app'
         files_plus_code, dumpfiles = generate()
         hname, cname, gdbname = write_files(*files_plus_code)
-        build([cname], binname)
+        build('genfiles/' + cname, binname)
         ret = run_simu(gdbname, binname)
         tc.shell(f'wc -c {" ".join(dumpfiles)}')
         timing_dump()

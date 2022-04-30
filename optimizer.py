@@ -594,16 +594,17 @@ def export(states, tensor_i, tensor_o, dma, word_size):
         return prog
 
     for i, o in states:
-        if state[0] != i:
-            prog.append_ldi(i, CS(tensor_i, i))
-            state[0] = i
-
+        # We must update O before I (for codegen)
         if state[1] != o:
             if state[1] != -1: # Remove first useless load
                 prog.append_sto(state[1], CS(tensor_o, state[1]))
             prog.append_ldo(o, CS(tensor_o, o))
             state[1] = o
-        
+
+        if state[0] != i:
+            prog.append_ldi(i, CS(tensor_i, i))
+            state[0] = i
+
         transactions(tensor_o)
     
     prog.append_sto(o, CS(tensor_o, o))

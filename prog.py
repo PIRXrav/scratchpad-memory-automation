@@ -69,7 +69,7 @@ class Prog:
         pv = AnalyserDmaValueRepartitionProgVisitor(self)
         from termhist import termhists
         return termhists(pv.datas, pv.names, xsize=xsize, ysize=ysize)
-    
+
     def gen_statistics_dma_adr(self):
         class MvCollectAddrsProgVisitor(ProgVisitor):
             """."""
@@ -90,7 +90,9 @@ class Prog:
         from numpy import savetxt
         savetxt('itab', itab)
         savetxt('otab', otab)
-        
+
+    def __str__(self):
+        return str(self.prog)
 
 class ProgVisitor:
     """Using a visitor pattern for different gencode

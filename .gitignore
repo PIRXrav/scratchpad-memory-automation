@@ -14,3 +14,11 @@ res.c
 .coverage
 
 res.h
+
+dmasimulator/build/
+
+dmasimulator/genfiles/
+
+dmasimulator/simdma/build/
+
+dmasimulator/simdma/lib/

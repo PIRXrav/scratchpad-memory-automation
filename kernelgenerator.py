@@ -303,10 +303,7 @@ class Kernel:
         """Benchmark a kernel
         """
 
-        PREFIX = "./dmasimulator/genfiles/"
-        SMA_SOURCE = PREFIX + "sma_source.c"
-        SMA_BIN = PREFIX + "sma_bin"
-
+        PREFIX = "/tmp/"
         CC = "gcc"
         CFLAGS = "-Wall -Wextra -Werror -Idmasimulator -g -O1"
         LDFLAGS = ""
@@ -325,11 +322,11 @@ class Kernel:
 
         @timing
         def write_files(hname, hcode, cname, ccode, gdbname, gdbcode):
-            hname = hname
-            cname = cname
+            hname = PREFIX + hname
+            cname = PREFIX + cname
             gdbname = PREFIX + gdbname
-            tc.write_file(PREFIX + hname, hcode)
-            tc.write_file(PREFIX + cname, ccode)
+            tc.write_file(hname, hcode)
+            tc.write_file(cname, ccode)
             tc.write_file(gdbname, gdbcode)
             return hname, cname, gdbname
 
@@ -353,10 +350,10 @@ class Kernel:
             return int(PYTHON_RES['err'])
 
         self.process(do_mem_mapping=True)
-        binname = './dmasimulator/build/app'
+        binname = 'dmasimulator/build/app'
         files_plus_code, dumpfiles = generate()
         hname, cname, gdbname = write_files(*files_plus_code)
-        build('genfiles/' + cname, binname)
+        build(cname, binname)
         ret = run_simu(gdbname, binname)
         tc.shell(f'wc -c {" ".join(dumpfiles)}')
         timing_dump()

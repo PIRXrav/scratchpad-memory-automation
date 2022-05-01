@@ -30,19 +30,18 @@ logging.basicConfig(
 log = logging.getLogger()
 
 
-def validation_kernel(kernel_name, config):
+def validation_kernel(kernel_name, config, debug=False):
     """Run kernel with and without dma mapping. Then compare the memory of the
     programmes with gdb
     """
     log.info(f"KERNEL validation: {kernel_name} {config}")
     kernel = Kernel(kernel_name, config)
-    result, files = kernel.bench()
-    print(files)
+    result, files = kernel.bench(debug=debug)
+    # print(files)
     # for ff in zip(*tuple(files)):
     #     eq = filecmp.cmp(*ff)
     #     total_diff += not eq
     #     log.debug(f'{ff[0]} and {ff[1]} {"are equals" if eq else "differ"}')
-
     return result
 
 
@@ -118,7 +117,7 @@ if __name__ == "__main__":
     # validation_kernel()
     # validation_kernel('conv2d', )
     # validation_kernel('copy', )
-    validation_kernel('conv2d', {"X": 256, "Y": 8, "DKX": 3, "DKY": 3})
+    validation_kernel('conv2d', {"X": 256, "Y": 8, "DKX": 3, "DKY": 3}, debug=True)
     # validation_kernel('conv2d', {"X": 32, "Y": 8, "DKX": 1, "DKY": 4})
     # validation_kernel('gemv', {"M": 32, "N": 32})
 

@@ -100,7 +100,7 @@ def tsp_solve(states):
     permutation, cost = solve_tsp_local_search(distances)
     return [cost, np.array(states)[permutation]]
 
-def run(tensor_i, tensor_o, dma, word_size):
+def run(tensor_i, tensor_o, dma, word_size, do_tsp=False):
     print('================== fast_explore_numba ====================(v2)')
     start_time = time.time()
     history_stack = np.zeros((tensor_o.size, 2), dtype=np.int32)
@@ -111,7 +111,8 @@ def run(tensor_i, tensor_o, dma, word_size):
     print("--- fast_explore_numba : %s seconds ---" % (time.time() - start_time))
     print('==========================================================')
     print(best)
-    best = tsp_solve(best[1])
+    if(do_tsp):
+        best = tsp_solve(best[1])
     print(f"Got states: {list(map(tuple, best[1]))}")
     print(f"cost: {best[0]}")
     return best

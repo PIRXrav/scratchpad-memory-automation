@@ -3,7 +3,7 @@ from coalescing_optimizer import run
 from prog_gencode import CMvTabGencodeProgVisitor, GenericGencodeProgVisitor
 import numpy as np
 import ctools
-
+import toolchain as tc
 
 class Coalescing:
     def __init__(self, tensor_i, tensor_o, dtype, type_size, dma, word_size):
@@ -33,8 +33,7 @@ class Coalescing:
         return self.prog
 
     def benchmark(self):
-        BUIL_DIR = './dmasimulator/genfiles/'   
-        from toolchain import gcc, write_c_file, benchmarkrun, write_file, shell
+        from toolchain import gcc, write_c_file, write_file, shell
         from ctools import comment_header
 
         evaluation = self.prog.gen_evaluation(self.dma)
@@ -83,7 +82,7 @@ class Coalescing:
         code += prog_c
         code += "}\n"
         code += "\n"
-        write_c_file(BUIL_DIR + "res.h", code, display_code=True)
+        write_c_file(tc.PATH_GEN_FILES + "res.h", code, display_code=True)
 
         tensor_o_test = np.zeros(tensor_o.size, dtype=np.int32).reshape(tensor_o.shape)
         code = comment_header("GENERATED FILE: res.c",
@@ -130,26 +129,25 @@ class Coalescing:
         code += '    printf("postbench ...\\n");\n'
         code += "    exit(postbench());\n"
         code += "}}\n"
-        write_c_file(BUIL_DIR + "res.c", code, display_code=False)
+        tc.write_c_file(tc.PATH_GEN_FILES + "res.c", code, display_code=False)
 
         gdbname, code, dump_file_names = self.generate_benchmark_gdb()
-        write_file(gdbname, code)
-        USER_SRC = 'genfiles/res.c'
-        base_cmd = f'make -C dmasimulator USER_SRC="{USER_SRC}" USER_INC="-Igenfiles"'
+        tc.write_file(tc.PATH_GEN_FILES + gdbname, code)
         # build
-        shell(base_cmd + ' all', verbose=True)
-        binfile = './dmasimulator/build/app'
         # gcc(['res.c'], binfile, opts='-DHW_WORD_CONSTRAINTS', verbose=True)
-        cmd = f"gdb --batch --command={gdbname} --args {binfile}"
-        res, out = benchmarkrun(cmd, verbose=False)
+        tc.make(src='genfiles/res.c')
+
+        if 1:
+            args = f'USER_GDB={"genfiles/" + gdbname} gdb'
+        else:
+            args = 'run'
+        res, _ = tc.python_res_catch(tc.make(src='genfiles/res.c', args=args))
         print(res)
-        print(out)
         print("SUCCESS" if res['err'] == 0 else "ERROR")
-        return res['err']
+        return int(res['err'])
 
     def generate_benchmark_gdb(self, prefix=""):
         decl_names = ('tensor_i', 'tensor_o', 'tensor_o_test')
-
         dump_file_names = [prefix + d + ".bin" for d in decl_names]
         print(dump_file_names)
 

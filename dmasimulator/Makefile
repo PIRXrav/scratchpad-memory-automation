@@ -10,12 +10,12 @@ CFLAGS 	+= -Wall -Wextra -Werror -g $(INC)
 LDFLAGS = $(CFLAGS)
 CC 		= gcc
 LD 		= gcc
-app 	= build/app
+EXEC 	= build/app
 
 
-all: $(app)
+all: $(EXEC)
 
-$(app): $(OBJ)
+$(EXEC): $(OBJ)
 	mkdir -p $(@D)
 	$(LD) $(LDFLAGS) -o $@ $^
 
@@ -29,9 +29,22 @@ build/%.o: %.c
 libs:
 	make -C simdma
 
+# -------------------------------- run --------------------------------------- #
+
 .phony: run
-run: $(app)
+run: $(EXEC)
 	./$<
+
+
+# -------------------------------- gdb --------------------------------------- #
+
+.phony: gdb
+gdb: $(EXEC) $(USER_GDB)
+	cd build && gdb --batch --command=../$(USER_GDB) gdbname --args app
+
+$(USER_GDB):
+	$(error missing GDB script: $@)
+
 
 clean:
 	rm -rf build

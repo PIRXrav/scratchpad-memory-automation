@@ -54,13 +54,21 @@ def gcc(cfiles, binfile, opts="", verbose=False):
     cmd = f"{CC} {CFLAGS} {opts} {LDFLAGS} {' '.join(cfiles)} -I. -o {binfile}"
     shell(cmd, verbose=verbose)
 
-def benchmarkrun(cmd, verbose=False):
+def python_res_catch(stdout):
     """ All benchmarks must print line:
     PYTHON_RES = {"hash": -450, "hasht": -450, "err": 0}
     """
-    out = shell(cmd, verbose=verbose)
     # Process result
-    for line in out.split('\n'):
+    for line in stdout.split('\n'):
         if 'PYTHON_RES' in line:
             PYTHON_RES = eval(line.split('=')[1])
-    return PYTHON_RES, out
+    return PYTHON_RES, stdout
+
+
+PATH_GEN_FILES = 'dmasimulator/genfiles/'
+PATH_APP = 'dmasimulator/build/app'
+
+
+def make(src="", incs="-Igenfiles", args='all'):
+    cmd = f'make -C dmasimulator USER_SRC="{src}" USER_INC="{incs}" {args}'
+    return shell(cmd, verbose=True)

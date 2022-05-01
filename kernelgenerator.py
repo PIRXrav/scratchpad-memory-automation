@@ -299,7 +299,7 @@ class Kernel:
     def __str__(self):
         return f"{self.kernel_name} {self.config}"
 
-    def bench(self):
+    def bench(self, debug=False):
         """Benchmark a kernel
         """
 
@@ -315,47 +315,39 @@ class Kernel:
             print(c_highlight(hcode))
             cname, ccode = self.generate_benchmark()
             # print(c_highlight(ccode))
-            gdbname, gdbcode, dumpfiles = self.generate_benchmark_gdb(
-                prefix=PREFIX
-            )
+            gdbname, gdbcode, dumpfiles = self.generate_benchmark_gdb()
             return (hname, hcode, cname, ccode, gdbname, gdbcode), dumpfiles
 
         @timing
         def write_files(hname, hcode, cname, ccode, gdbname, gdbcode):
-            hname = PREFIX + hname
-            cname = PREFIX + cname
-            gdbname = PREFIX + gdbname
-            tc.write_file(hname, hcode)
-            tc.write_file(cname, ccode)
-            tc.write_file(gdbname, gdbcode)
+            tc.write_file(tc.PATH_GEN_FILES + hname, hcode)
+            tc.write_file(tc.PATH_GEN_FILES + cname, ccode)
+            tc.write_file(tc.PATH_GEN_FILES + gdbname, gdbcode)
             return hname, cname, gdbname
 
         @timing
-        def build(cname, binname):
-            base_cmd = f'make -C dmasimulator USER_SRC="{cname}" USER_INC="-Igenfiles"'
-            ret = tc.shell(base_cmd, verbose=True)
-            return ret
+        def build(cname):
+            return tc.make(src=f'genfiles/{cname}')
 
         @timing
-        def run_simu(gdbname, binname):
-            # Run
-            cmd = f"gdb --batch --command={gdbname} --args {binname}"
-            # cmd = binname
-            res = tc.shell(cmd, verbose=True)
-            # Process result
-            for line in res.split('\n'):
-                if 'PYTHON_RES' in line:
-                    PYTHON_RES = eval(line.split('=')[1])
-                    print(PYTHON_RES)
-            return int(PYTHON_RES['err'])
+        def run_simu(gdbname, dumpfiles):
+            if debug:
+                args = f'USER_GDB={"genfiles/" + gdbname} gdb'
+            else:
+                args = 'run'
+            res, _ = tc.python_res_catch(tc.make(src='genfiles/res.c', args=args))
+            # if USE_GDB:
+            #     tc.shell(f'wc -c {" ".join(dumpfiles)}')
+            print(res)
+            print("SUCCESS" if res['err'] == 0 else "ERROR")
+            return int(res['err'])
 
         self.process(do_mem_mapping=True)
         binname = 'dmasimulator/build/app'
         files_plus_code, dumpfiles = generate()
         hname, cname, gdbname = write_files(*files_plus_code)
-        build(cname, binname)
-        ret = run_simu(gdbname, binname)
-        tc.shell(f'wc -c {" ".join(dumpfiles)}')
+        build(cname)
+        ret = run_simu(gdbname, dumpfiles)
         timing_dump()
         return ret, dumpfiles
 

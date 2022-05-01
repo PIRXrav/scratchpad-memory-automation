@@ -17,7 +17,8 @@ res.h
 
 dmasimulator/build/
 
-dmasimulator/genfiles/
+dmasimulator/genfiles/*
+!dmasimulator/genfiles/.gitkeep
 
 dmasimulator/simdma/build/
 

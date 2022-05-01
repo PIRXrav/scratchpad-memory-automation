@@ -330,12 +330,12 @@ class Kernel:
             return tc.make(src=f'genfiles/{cname}')
 
         @timing
-        def run_simu(gdbname, dumpfiles):
+        def run_simu(cname, gdbname, dumpfiles):
             if debug:
                 args = f'USER_GDB={"genfiles/" + gdbname} gdb'
             else:
                 args = 'run'
-            res, _ = tc.python_res_catch(tc.make(src='genfiles/res.c', args=args))
+            res, _ = tc.python_res_catch(tc.make(src=f'genfiles/{cname}', args=args))
             # if USE_GDB:
             #     tc.shell(f'wc -c {" ".join(dumpfiles)}')
             print(res)
@@ -347,7 +347,7 @@ class Kernel:
         files_plus_code, dumpfiles = generate()
         hname, cname, gdbname = write_files(*files_plus_code)
         build(cname)
-        ret = run_simu(gdbname, dumpfiles)
+        ret = run_simu(cname, gdbname, dumpfiles)
         timing_dump()
         return ret, dumpfiles
 

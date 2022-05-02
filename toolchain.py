@@ -1,14 +1,17 @@
 import subprocess
 from ctools import c_highlight
 
+
 def write_file(filename, code):
     """write file filename with code as data"""
     with open(filename, "w") as f:
         f.write(code)
 
+
 def read_file(filename):
     with open(filename) as f:
         return f.read()
+
 
 def write_c_file(filename, code, display_code=False):
     """write file filename with code as data
@@ -17,6 +20,7 @@ def write_c_file(filename, code, display_code=False):
     res = shell(f"clang-format -i {filename}")
     if display_code:  # Display code after clang-format
         print(c_highlight(read_file(filename)))
+    return res
 
 
 def shell(cmd, verbose=False):
@@ -50,9 +54,11 @@ CC = "gcc"
 CFLAGS = f"-Wall -Wextra -Werror -Idmasimulator -I. -g -{OPTIMISE}"
 LDFLAGS = ""
 
+
 def gcc(cfiles, binfile, opts="", verbose=False):
     cmd = f"{CC} {CFLAGS} {opts} {LDFLAGS} {' '.join(cfiles)} -I. -o {binfile}"
     shell(cmd, verbose=verbose)
+
 
 def python_res_catch(stdout):
     """ All benchmarks must print line:
@@ -64,8 +70,10 @@ def python_res_catch(stdout):
             PYTHON_RES = eval(line.split('=')[1])
     return PYTHON_RES, stdout
 
+
 PATH_GEN_FILES = 'dmasimulator/genfiles/'
 # PATH_APP = 'dmasimulator/build/app'
+
 
 class Make:
     def __init__(self, dma_size, word_size, src="", inc="-Igenfiles", gdb=""):

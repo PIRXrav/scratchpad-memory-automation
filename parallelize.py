@@ -33,6 +33,7 @@ access addresses are unique to the sub-iteration space
 
 NB_CORE = 16
 
+
 def parallelize(loops_access_names, loops_access_l, ref_access_names):
     """
     loops_access_names=['m', 'n', '__SENTINEL__']

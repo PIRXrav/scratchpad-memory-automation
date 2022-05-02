@@ -23,6 +23,8 @@ import sympy
 from copy import copy
 import polyhedron as poly
 from gencode_dma import Gencode
+# from math import gcd
+
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +32,9 @@ TYPES_SIZE = {'char': 1,
               'int': 4,
               'float': 4,
               'double': 8}
+
+WORD_SIZE = 'DeleteMeFlake8ok'
+
 
 def do_memory_mapping(ast, ref_decl_namespace, dma_size):
     log.debug(f"{ref_decl_namespace=}")
@@ -165,6 +170,7 @@ def get_size_of_type(ctype):
             return nb_byes
     raise Exception(f"Unknown type size: {ctype}")
 
+
 def c_ast_expr_to_l(ast):
     return sympy.parsing.sympy_parser.parse_expr(at.ast_to_c(ast), evaluate=True)
 
@@ -255,7 +261,6 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace, dma_size):
             cur = decl_l_cum[ID] + (WORD_SIZE - (decl_l_cum[ID] % WORD_SIZE))
             print(f"Want {decl_l_cum[ID]=} -> {cur=}")
 
-            from math import gcd
             print(f"range = [{decl_l_cum[ID - 1]}  :  {cur // decl_l[ID] + 1}]")
             for new_l in range(decl_l[ID - 1], cur // decl_l[ID] + 1 + 1):
                 new_lp = cur / new_l
@@ -487,7 +492,7 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace, dma_size):
 
     if not topcomp:
         raise Exception(f"No {topcomp=} @ {IL=}")
-    
+
     # Compute
     if IR == -1:  # Array < DMA
         log.debug("--- WRAP MODE")
@@ -560,7 +565,6 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace, dma_size):
         # Update high loop variable & l
         at.c_ast_for_update_name(il_fornode, il_high_name)
         at.c_ast_for_update_l(il_fornode, at.expr_c_to_ast(str(il_high_l)))
-
 
         stmts = []
 

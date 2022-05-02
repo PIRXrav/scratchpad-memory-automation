@@ -7,19 +7,19 @@ def concaty(*args):
 
 def termhist(a, title, xsize=10, ysize=10):
     values, _ = np.histogram(a, bins=xsize)
-    normv = 1/np.max(values) * ysize
+    normv = 1 / np.max(values) * ysize
     mat = np.zeros((xsize, ysize))
     for i_v, v in enumerate(values):
         for k in range(int((v * normv))):
             mat[i_v][k] = v
     d = 6
-    hist =  '-' * d + '+' + '-' * xsize + '+' + '\n'
+    hist = '-' * d + '+' + '-' * xsize + '+' + '\n'
     hist += ' ' * d + "|" + title.center(xsize) + "|\n"
     hist += '-' * d + '+' + '-' * xsize + '+' + '\n'
     for y in range(ysize):
         hist += f'{int(((ysize-y-1)/normv)):>5} |'
         for x in range(xsize):
-            hist += '\u2588' if mat[x][ysize-y-1] else ' '
+            hist += '\u2588' if mat[x][ysize - y - 1] else ' '
         hist += '|\n'
     hist += '-' * d + '+' + '-' * xsize + '+' + '\n'
     return hist

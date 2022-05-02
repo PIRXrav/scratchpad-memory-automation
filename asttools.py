@@ -8,6 +8,7 @@ from copy import deepcopy
 
 from ctools import c_highlight
 
+
 def file_to_ast(file, use_cpp=True):
     return parse_file(file, use_cpp=True)
 
@@ -349,6 +350,7 @@ def c_ast_get_all_id(ast):
     nv.visit(ast)
     return nv.res
 
+
 def c_ast_get_all_id_by_name(ast, name):
     """Return all idendifiers filtered by name ID(name='')"""
     return filter(lambda node: node.name == name, c_ast_get_all_id(ast))
@@ -471,6 +473,7 @@ def test_c_ast_replace_id():
     assert len(list(c_ast_get_all_id_by_name(ast, 'r'))) == 3  # catch new r
     # print(ast_to_c_highlight(ast))
 
+
 def c_ast_typename(type_s):
     """
     Typename(name=None,
@@ -497,6 +500,7 @@ def c_ast_typename(type_s):
         base_type = c_ast.PtrDecl([], base_type)
     return c_ast.Typename(None, [], None, base_type)
 
+
 def c_ast_get_parent(ast, nodes):
     class ParentVisitor(c_ast.NodeVisitor):
         def __init__(self, nodes):
@@ -516,6 +520,7 @@ def c_ast_get_parent(ast, nodes):
     nv = ParentVisitor(nodes)
     nv.visit(ast)
     return nv.res
+
 
 def c_ast_cast_nodes(ast, nodes, cast_type):
     """Replace node by (cast_type)node"""
@@ -562,6 +567,7 @@ def c_ast_update_ref_dereference_type(ast, nodes, type_decl, wrapper):
 #         setattr(parent, slot, node)
 #     return ast
 
+
 def test_c_ast_update_ref_dereference_type():
     ast = stmt_c_to_ast('for(int n = 0; n < 10; n++) {n = x + n; x += x * z;}')
     xids = list(c_ast_get_all_id_by_name(ast, 'z'))
@@ -578,6 +584,7 @@ def c_ast_decl_type_add_prefix(decl, prefix):
     type_id = all_type_id[0]
     type_id.names[0] = prefix + type_id.names[0]
     return decl
+
 
 def c_ast_get_all_nodes_by_type(ast, node_class):
     class GenericVisitor(c_ast.NodeVisitor):

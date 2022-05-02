@@ -7,6 +7,7 @@ import toolchain as tc
 from gencode_dma import fix_size_to_word_size
 from prog import Prog
 
+
 class Coalescing:
     def __init__(self, tensor_i, tensor_o, dtype, type_size, dma, word_size):
         self.tensor_i = tensor_i
@@ -51,7 +52,7 @@ class Coalescing:
         word_size = self.word_size
         tensor_i = self.tensor_i.copy()
         tensor_o = self.tensor_o.copy()
-        
+
         state = [-1, -1]
         prog = Prog()
 
@@ -71,7 +72,7 @@ class Coalescing:
         for i, o in states:
             # We must update O before I (for codegen)
             if state[1] != o:
-                if state[1] != -1: # Remove first useless load
+                if state[1] != -1:  # Remove first useless load
                     prog.append_sto(state[1] * type_size, CS(tensor_o, state[1]))
                 prog.append_ldo(o * type_size, CS(tensor_o, o))
                 state[1] = o
@@ -81,14 +82,14 @@ class Coalescing:
                 state[0] = i
 
             transactions(tensor_o)
-        
+
         prog.append_sto(o, CS(tensor_o, o))
         if not np.all(tensor_o):
             raise Exception(f'Invalid algo: \n{tensor_o} w {np.all(tensor_o)}')
         return prog
 
     def benchmark(self):
-        from toolchain import gcc, write_c_file, write_file, shell
+        from toolchain import write_c_file
         from ctools import comment_header
 
         evaluation = self.prog.gen_evaluation(self.dma)
@@ -211,17 +212,18 @@ class Coalescing:
         code += "c\n"
         return filename, code, dump_file_names
 
+
 # DMA config
 WORD_SIZE = 8
-DMA = 128  # 1024o
+DMA = 1024  # 1024o
 
 DTYPE = "int64_t"
 DTYPE_SIZE = 8  # Bytes
 
 
 # Input
-x = 8
-y = 8
+x = 16
+y = 16
 
 # Filter shape
 Dkx = 2

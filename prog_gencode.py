@@ -4,6 +4,8 @@
 from prog import ProgVisitor
 from itertools import chain
 import struct
+from gencode_dma import Gencode
+
 
 # OUTDATED
 # class CLinearGencodeProgVisitor(ProgVisitor):
@@ -34,7 +36,6 @@ import struct
 #     def __str__(self):
 #         return self.export()
 
-from gencode_dma import Gencode
 
 class CMvTabGencodeProgVisitor(ProgVisitor):
     """

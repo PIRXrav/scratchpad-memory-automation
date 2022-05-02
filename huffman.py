@@ -1,6 +1,7 @@
 from heapq import heappush, heappop, heapify
 from collections import Counter
 
+
 class Huffman:
     def __init__(self, txt):
         # Compute symbol frequencies

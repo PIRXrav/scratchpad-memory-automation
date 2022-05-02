@@ -6,6 +6,7 @@ from pygments.lexers import CLexer
 from pygments.formatters import TerminalFormatter
 import numpy as np
 
+
 def ppdict(dict):
     """Pretty print dict
     """

@@ -3,13 +3,11 @@
 
 import logging
 from kernelgenerator import Kernel, kernel_compute_name
-import filecmp
-from asttools import c_highlight
+# import filecmp
 import unittest
 from ddt import ddt, data
 from itertools import product
 
-import toolchain as tc
 
 DEBUG_MODE = 1
 

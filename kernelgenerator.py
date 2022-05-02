@@ -3,8 +3,6 @@ __VERSION__ = "alpha"
 from parse import parse
 from collections import defaultdict
 from itertools import chain
-from subprocess import check_output
-
 from asttools import c_highlight
 from asttools import c_to_ast, ast_to_c, expr_c_to_ast
 from asttools import fun_get_name, fun_set_name
@@ -24,6 +22,9 @@ import toolchain as tc
 import ctools
 
 from copy import deepcopy
+from functools import wraps
+from time import time
+
 
 def path_of_kernel(kernel_name):
     return f"kernels/{kernel_name}.c"
@@ -36,10 +37,9 @@ KERNEL_CODE_SEC = ("ARG", "FUN")
 def kernel_compute_name(name, config):
     return name + "".join(map(lambda c: "_" + "".join(map(str, c)), config.items()))
 
-from functools import wraps
-from time import time
 
 timing_stack = []
+
 
 def timing(func):
     """Measure elapsed time"""
@@ -56,6 +56,7 @@ def timing(func):
 
     return wrap
 
+
 def timing_dump():
     """Display results of timing func"""
     global timing_stack
@@ -67,7 +68,7 @@ def timing_dump():
 def c_ast_cdecl_to_ast(line):
     s = parse("{} {}", line)
     ctype = s[0].replace(' ', '')
-    cdecl = s[1].replace(' ', '')
+    # cdecl = s[1].replace(' ', '')
     if ctype in ('char', 'int', 'float', 'double'):  # TODO all std c types
         decl = c_to_ast(line).ext[0]
     else:
@@ -226,7 +227,7 @@ class Kernel:
     def gen_init_code(self, decl_name, decl_l):
         indx = [(chr(i + ord("a")), l) for i, l in enumerate((decl_l[1:]))]
         print(indx)
-        adr = "".join(list((f"[{i}]" for i, l in reversed(indx))))     
+        adr = "".join(list((f"[{i}]" for i, l in reversed(indx))))
         code = ""
         for dn in [decl_name, decl_name + '_test']:
             code += f'{dn}{adr} = {"+".join((i for i, l in indx))};\n'
@@ -235,11 +236,10 @@ class Kernel:
         return code
 
     def generate_benchmark(self):
-        import outpreprocessor as opp
         decl_names = [d.name for d in self.decls]
         decl_names_test = map(lambda s: s + "_test", decl_names)
         fun_name = fun_get_name(self.fun)
-        argpp = self.sectionspp["ARG"]
+        # argpp = self.sectionspp["ARG"]
         filename = fun_name + ".c"
         code = ""
         code += ctools.comment_header(
@@ -325,6 +325,7 @@ class Kernel:
         print(res)
         print("SUCCESS" if res['err'] == 0 else "ERROR")
         return int(res['err']), dumpfiles
+
 
 if __name__ == "__main__":
     kernel = Kernel("conv2d", {"X": 16, "Y": 16, "DKX": 3, "DKY": 3})

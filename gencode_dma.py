@@ -1,6 +1,7 @@
 """Python codegen for using dma.h
 """
 
+
 class Gencode:
     @classmethod
     def cgen_dma_init(self, index, adr, size):

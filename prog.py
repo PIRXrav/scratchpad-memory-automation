@@ -1,5 +1,6 @@
 import numpy as np
 
+
 class Prog:
     LDI = 'ldi'
     LDO = 'ldo'
@@ -86,13 +87,15 @@ class Prog:
                 return np.array(self.itab, dtype=np.int16), np.array(self.otab, dtype=np.int16)
 
         itab, otab = MvCollectAddrsProgVisitor(self).export()
-        from numpy import asarray
-        from numpy import savetxt
-        savetxt('itab', itab)
-        savetxt('otab', otab)
+        # from numpy import asarray
+        # from numpy import savetxt
+        # savetxt('itab', itab)
+        # savetxt('otab', otab)
+        return itab, otab
 
     def __str__(self):
         return str(self.prog)
+
 
 class ProgVisitor:
     """Using a visitor pattern for different gencode
@@ -120,10 +123,10 @@ class ProgVisitor:
     def visit_mv(self, rel_addr_dst, rel_addr_src, *args, **kwargs):
         pass
 
+
 if __name__ == '__main__':
     from test_coalescing import Coalescing
-    from optimizer import toeplitz, export
-    import numpy as np
+    from optimizer import toeplitz
 
     # DMA config
     WORD_SIZE = 8

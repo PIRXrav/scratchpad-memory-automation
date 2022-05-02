@@ -3,6 +3,7 @@
 
 import unittest
 
+
 class Interval:
     def __init__(self, a, b):
         """Init Interval [a, b]

@@ -1,10 +1,6 @@
 import numpy as np
-import sys
-import enlighten
-from itertools import product
+from numba import njit
 import time
-from numba import jit, njit
-from prog import Prog
 
 
 @njit(nogil=True)
@@ -79,6 +75,7 @@ def fast_explore_numba(tensor_i, tensor_o, dma, block_size, history_stack):
     # print(f'HIT! : {dept} {path}')
     return dept
 
+
 def tsp_solve(states):
     """
     Find the best sheduling of states
@@ -99,6 +96,7 @@ def tsp_solve(states):
     # print(distances)
     permutation, cost = solve_tsp_local_search(distances)
     return [cost, np.array(states)[permutation]]
+
 
 def run(tensor_i, tensor_o, dma, block_size, do_tsp=False):
     print('================== fast_explore_numba ====================(v2)')

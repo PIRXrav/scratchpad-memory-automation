@@ -86,17 +86,15 @@ void __sma_dma_init(uint8_t index, __SMA_RAM_PTR void *adr, uint16_t size){
         log_fatal("DMA [%d]: invalid initialisation size %d > DMA_SIZE\n", index, size);
         exit(100);
     }
-#ifdef HW_WORD_CONSTRAINTS
     if(!(__sma_size[index] % WORD_SIZE == 0)){
-        log_fatal("DMA [%d]: invalid initialisation size %d % WORD_SIZE != 0\n", index, size);
+        log_fatal("DMA [%d]: invalid initialisation size %d mod WORD_SIZE != 0\n", index, size);
         exit(101);
         
     }
     if(!((uint64_t)__sma_base_adr[index] % WORD_SIZE == 0)){
-        log_fatal("DMA [%d]: invalid initialisation adr %p % WORD_SIZE != 0\n", index, adr);
+        log_fatal("DMA [%d]: invalid initialisation adr %p mod WORD_SIZE != 0\n", index, adr);
         exit(102);
     }
-#endif
 }
 
 void __sma_dma_load(uint8_t index){

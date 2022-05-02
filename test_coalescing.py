@@ -1,9 +1,11 @@
-from optimizer import toeplitz, export
+from optimizer import toeplitz, dma_load
 from coalescing_optimizer import run
 from prog_gencode import CMvTabGencodeProgVisitor, GenericGencodeProgVisitor
 import numpy as np
 import ctools
 import toolchain as tc
+from gencode_dma import fix_size_to_word_size
+from prog import Prog
 
 class Coalescing:
     def __init__(self, tensor_i, tensor_o, dtype, type_size, dma, word_size):
@@ -26,11 +28,64 @@ class Coalescing:
             [32, 384],
             [64, 512],
         ]
-        self.cost, self.states = run(tensor_i, tensor_o, self.word_size, self.dma)
-        self.prog = export(self.states, self.tensor_i, self.tensor_o, self.dma, self.word_size)
+        # Compute optimal state path
+        # We create here latent memory space to simplify coalescing func
+        self.latent_dma = self.dma // self.type_size
+        if self.type_size >= self.word_size:
+            assert self.type_size % self.word_size == 0
+            self.latent_word_size = 1
+        else:
+            latent_word_size = self.word_size / self.type_size
+            assert int(latent_word_size) == latent_word_size
+            self.latent_word_size = int(latent_word_size)
+        # We can removes thoses assertion constrains if we use real memory
+        # space during coalescing optimisation run.
+        self.cost, self.states = run(tensor_i, tensor_o, self.latent_dma, self.latent_word_size)
 
-    def export(self):
-        return self.prog
+        # Generate prog
+        self.prog = self.gen_prog(self.states)
+
+    def gen_prog(self, states):
+        type_size = self.type_size
+        dma = self.dma
+        word_size = self.word_size
+        tensor_i = self.tensor_i.copy()
+        tensor_o = self.tensor_o.copy()
+        
+        state = [-1, -1]
+        prog = Prog()
+
+        def CS(tensor, adr):
+            return fix_size_to_word_size(min(tensor.size * type_size, adr + dma) - adr, word_size)
+
+        def transactions(tensor_o):
+            dmai = dma_load(tensor_i, state[0], self.latent_dma)
+            dmao = dma_load(tensor_o, state[1], self.latent_dma)
+            for idmai, vi in enumerate(dmai):
+                for idmao, vo in enumerate(dmao):
+                    if vi == vo:
+                        dmao[idmao] = -1  # In reality, copy value:
+                        prog.append_mv(idmao * type_size, idmai * type_size)
+            return prog
+
+        for i, o in states:
+            # We must update O before I (for codegen)
+            if state[1] != o:
+                if state[1] != -1: # Remove first useless load
+                    prog.append_sto(state[1] * type_size, CS(tensor_o, state[1]))
+                prog.append_ldo(o * type_size, CS(tensor_o, o))
+                state[1] = o
+
+            if state[0] != i:
+                prog.append_ldi(i * type_size, CS(tensor_i, i))
+                state[0] = i
+
+            transactions(tensor_o)
+        
+        prog.append_sto(o, CS(tensor_o, o))
+        if not np.all(tensor_o):
+            raise Exception(f'Invalid algo: \n{tensor_o} w {np.all(tensor_o)}')
+        return prog
 
     def benchmark(self):
         from toolchain import gcc, write_c_file, write_file, shell
@@ -43,13 +98,12 @@ class Coalescing:
             framechain = GenericGencodeProgVisitor(self.prog, self.dma, self.word_size).export()
             base_size, arr = framechain.as_array(self.word_size)
             prog_arr_c = ctools.bstr_to_c('_sma_prog0', arr)
-            func = f'prog_mv{self.type_size}'
             print(framechain)
             print(base_size)
             print(arr, len(arr))
             print(prog_arr_c)
             decl_c = prog_arr_c
-            prog_c = f'{func}(tensor_i, tensor_o_test, _sma_prog0, {base_size});\n'
+            prog_c = f'prog_mv(tensor_i, tensor_o_test, _sma_prog0, {base_size}, {self.type_size});\n'
             incs_c = '#include "prog_mv.h"'
         else:
             progcode = CMvTabGencodeProgVisitor(self.prog, "tensor_i", "tensor_o_test", self.dma, self.dtype)
@@ -135,13 +189,10 @@ class Coalescing:
         tc.write_file(tc.PATH_GEN_FILES + gdbname, code)
         # build
         # gcc(['res.c'], binfile, opts='-DHW_WORD_CONSTRAINTS', verbose=True)
-        tc.make(src='genfiles/res.c')
-
-        if 1:
-            args = f'USER_GDB={"genfiles/" + gdbname} gdb'
-        else:
-            args = 'run'
-        res, _ = tc.python_res_catch(tc.make(src='genfiles/res.c', args=args))
+        make = tc.Make(self.dma, self.word_size, src='genfiles/res.c', gdb="genfiles/" + gdbname)
+        log_make = make.target('all')
+        log_make = make.target('run' if 1 else 'gdb')
+        res, _ = tc.python_res_catch(log_make)
         print(res)
         print("SUCCESS" if res['err'] == 0 else "ERROR")
         return int(res['err'])
@@ -164,17 +215,17 @@ class Coalescing:
 WORD_SIZE = 8
 DMA = 128  # 1024o
 
-DTYPE = "int8_t"
-DTYPE_SIZE = 8
+DTYPE = "int64_t"
+DTYPE_SIZE = 8  # Bytes
 
 
 # Input
-x = 16
-y = 16
+x = 8
+y = 8
 
 # Filter shape
-Dkx = 1
-Dky = 1
+Dkx = 2
+Dky = 2
 
 np.random.seed(12)
 

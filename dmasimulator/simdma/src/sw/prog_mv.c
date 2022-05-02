@@ -21,11 +21,12 @@ Mapping:
     DMA 2: Programm
 */
 
-void prog_mv8(
+void prog_mv(
     __SMA_RAM_PTR void* tensor_i,
     __SMA_RAM_PTR void* tensor_o,
     __SMA_RAM_PTR uint8_t* prog_base_addr,
-    uint16_t prog_base_size
+    uint16_t prog_base_size,
+    uint8_t type_size
 ){
     printf("Execute PROG_MV i@%p, o@%p p@%p base#%d\n", 
         tensor_i, tensor_o, prog_base_addr, prog_base_size);
@@ -66,7 +67,7 @@ void prog_mv8(
             // printf("addri=%d\n", addr_i);
             int16_t addr_o = *(int16_t*)DMA_RW(2, sizeof(struct prog_header_t) + (i * 2 + 1) * sizeof(int16_t));
             // printf("addro=%d\n", addr_o);
-            *((uint8_t*)DMA_RW(1, addr_i * sizeof(uint8_t))) = *((uint8_t*)DMA_RW(0, addr_o * sizeof(uint8_t)));
+            memcpy(DMA_RW(1, addr_i), DMA_RW(0, addr_o), type_size);
         }
         // Store tensor_o if needef
         if(frame_header->addr_store != -1){

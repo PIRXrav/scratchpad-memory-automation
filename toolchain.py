@@ -64,11 +64,20 @@ def python_res_catch(stdout):
             PYTHON_RES = eval(line.split('=')[1])
     return PYTHON_RES, stdout
 
-
 PATH_GEN_FILES = 'dmasimulator/genfiles/'
-PATH_APP = 'dmasimulator/build/app'
+# PATH_APP = 'dmasimulator/build/app'
 
+class Make:
+    def __init__(self, dma_size, word_size, src="", inc="-Igenfiles", gdb=""):
+        cfg = {
+            "USER_DMA_SIZE": dma_size,
+            "USER_WORD_SIZE": word_size,
+            "USER_SRC": src,
+            "USER_INC": inc,
+            "USER_GDB": gdb
+        }
+        args = " ".join(f'{k}={v}' for k, v in cfg.items())
+        self.base_cmd = f"make -C dmasimulator {args}"
 
-def make(src="", incs="-Igenfiles", args='all'):
-    cmd = f'make -C dmasimulator USER_SRC="{src}" USER_INC="{incs}" {args}'
-    return shell(cmd, verbose=True)
+    def target(self, target):
+        return shell(self.base_cmd + " " + target, verbose=True)

@@ -16,9 +16,13 @@ void *__sma_dma_access(uint8_t index, uint16_t reladr);
 
 /******************************* Software part ********************************/
 
-#define DMA_SIZE 128
+#ifndef DMA_SIZE
+#error DMA_SIZE undefined
+#endif
+#ifndef WORD_SIZE
+#error WORD_SIZE undefined
+#endif
 #define NR_DMA 3
-#define WORD_SIZE 8
 
 #define DMA_INIT(index, adr, size) __sma_dma_init(index, adr, size)
 #define DMA_LD(index) __sma_dma_load(index)

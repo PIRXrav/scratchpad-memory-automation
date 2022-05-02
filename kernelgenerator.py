@@ -81,9 +81,10 @@ def c_ast_cdecl_to_ast(line):
 
 
 class Kernel:
-    def __init__(self, kernel_name, user_config):
+    def __init__(self, kernel_name, user_config, dma_size):
 
         self.kernel_name = kernel_name
+        self.dma_size = dma_size
 
         # Get sections
         self.sections = defaultdict(str)
@@ -153,7 +154,7 @@ class Kernel:
     def process(self, do_mem_mapping=True):
         # Memory mapping
         if do_mem_mapping:
-            do_memory_mapping(self.fun, self.decl_l_namespace)
+            do_memory_mapping(self.fun, self.decl_l_namespace, self.dma_size)
 
         # Add args
         for decl_name, (ast_type, l) in self.decl_l_namespace.items():
@@ -302,55 +303,28 @@ class Kernel:
     def bench(self, debug=False):
         """Benchmark a kernel
         """
-
-        PREFIX = "/tmp/"
-        CC = "gcc"
-        CFLAGS = "-Wall -Wextra -Werror -Idmasimulator -g -O1"
-        LDFLAGS = ""
-
-        @timing
-        def generate():
-            # Generate C code
-            hname, hcode = self.generate_header()
-            print(c_highlight(hcode))
-            cname, ccode = self.generate_benchmark()
-            # print(c_highlight(ccode))
-            gdbname, gdbcode, dumpfiles = self.generate_benchmark_gdb()
-            return (hname, hcode, cname, ccode, gdbname, gdbcode), dumpfiles
-
-        @timing
-        def write_files(hname, hcode, cname, ccode, gdbname, gdbcode):
-            tc.write_file(tc.PATH_GEN_FILES + hname, hcode)
-            tc.write_file(tc.PATH_GEN_FILES + cname, ccode)
-            tc.write_file(tc.PATH_GEN_FILES + gdbname, gdbcode)
-            return hname, cname, gdbname
-
-        @timing
-        def build(cname):
-            return tc.make(src=f'genfiles/{cname}')
-
-        @timing
-        def run_simu(cname, gdbname, dumpfiles):
-            if debug:
-                args = f'USER_GDB={"genfiles/" + gdbname} gdb'
-            else:
-                args = 'run'
-            res, _ = tc.python_res_catch(tc.make(src=f'genfiles/{cname}', args=args))
-            # if USE_GDB:
-            #     tc.shell(f'wc -c {" ".join(dumpfiles)}')
-            print(res)
-            print("SUCCESS" if res['err'] == 0 else "ERROR")
-            return int(res['err'])
-
+        # Process kernel
         self.process(do_mem_mapping=True)
-        binname = 'dmasimulator/build/app'
-        files_plus_code, dumpfiles = generate()
-        hname, cname, gdbname = write_files(*files_plus_code)
-        build(cname)
-        ret = run_simu(cname, gdbname, dumpfiles)
-        timing_dump()
-        return ret, dumpfiles
 
+        # Generate C code
+        hname, hcode = self.generate_header()
+        tc.write_file(tc.PATH_GEN_FILES + hname, hcode)
+        print(c_highlight(hcode))
+        cname, ccode = self.generate_benchmark()
+        tc.write_file(tc.PATH_GEN_FILES + cname, ccode)
+        # print(c_highlight(ccode))
+        gdbname, gdbcode, dumpfiles = self.generate_benchmark_gdb()
+        tc.write_file(tc.PATH_GEN_FILES + gdbname, gdbcode)
+        # Build & run
+        # Word size = 1 !
+        make = tc.Make(self.dma_size, 1, src='genfiles/' + cname, gdb="genfiles/" + gdbname)
+        log_make = make.target('all')
+        log_make = make.target('run' if not debug else 'gdb')
+        res, _ = tc.python_res_catch(log_make)
+        timing_dump()
+        print(res)
+        print("SUCCESS" if res['err'] == 0 else "ERROR")
+        return int(res['err']), dumpfiles
 
 if __name__ == "__main__":
     kernel = Kernel("conv2d", {"X": 16, "Y": 16, "DKX": 3, "DKY": 3})

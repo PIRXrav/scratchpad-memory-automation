@@ -26,22 +26,18 @@ from gencode_dma import Gencode
 
 log = logging.getLogger(__name__)
 
-
-DMA_SIZE = 128
-WORD_SIZE = 8
-
 TYPES_SIZE = {'char': 1,
               'int': 4,
               'float': 4,
               'double': 8}
 
-def do_memory_mapping(ast, ref_decl_namespace):
+def do_memory_mapping(ast, ref_decl_namespace, dma_size):
     log.debug(f"{ref_decl_namespace=}")
     for topfor in at.c_ast_get_all_topfor(ast):
-        do_memory_mapping_on_topfor(ast, topfor, ref_decl_namespace)
+        do_memory_mapping_on_topfor(ast, topfor, ref_decl_namespace, dma_size)
 
 
-def do_memory_mapping_on_topfor(ast, topfor, ref_decl_namespace):
+def do_memory_mapping_on_topfor(ast, topfor, ref_decl_namespace, dma_size):
     log.debug("TOP FORS:")
 
     # Comute refs
@@ -71,7 +67,7 @@ def do_memory_mapping_on_topfor(ast, topfor, ref_decl_namespace):
     log.debug(f"TOP REFS ({nb_refs}):")
     for i, (ref_name, refs) in enumerate(merged_refs.items()):
         log.debug(f"{at.ast_to_c(ref):20} RW={at.c_ast_ref_is_rw(ast, ref)}")
-        dma_mapping_algo3(ast, refs, i, ref_decl_namespace)
+        dma_mapping_algo3(ast, refs, i, ref_decl_namespace, dma_size)
 
 
 def c_ast_to_interval(ref, namespace):
@@ -203,7 +199,7 @@ def contain_ordered(listin, data):
         return contain_ordered(listin, data[1:])
 
 
-def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
+def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace, dma_size):
     """ """
 
     ref = refs[0]
@@ -237,10 +233,10 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
             # Add memory paddind
             # Find where insert memory padding
             ID = 1
-            if DMA_SIZE >= decl_l_cum[-1]:
+            if dma_size >= decl_l_cum[-1]:
                 ID = -1
             else:
-                while ID + 1 < len(decl_l_cum) and DMA_SIZE > decl_l_cum[ID + 1]:
+                while ID + 1 < len(decl_l_cum) and dma_size > decl_l_cum[ID + 1]:
                     ID += 1
 
             print(f'{ID=} -> {decl_l_cum[ID]=}')
@@ -388,18 +384,18 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
 
     # Find where insert DMA LD/ST
     IL = 0
-    if DMA_SIZE >= loops_ref_access_l_cum[-1]:  # We only need to do 1 transfert
+    if dma_size >= loops_ref_access_l_cum[-1]:  # We only need to do 1 transfert
         IL = -1
     else:
-        while DMA_SIZE > loops_ref_access_l_cum[IL]:
+        while dma_size > loops_ref_access_l_cum[IL]:
             IL += 1
 
     # Find how to insert DMA LD/ST
     IR = 0
-    if DMA_SIZE >= ref_decl_l_cum[-1]:  # We only need to do 1 transfert
+    if dma_size >= ref_decl_l_cum[-1]:  # We only need to do 1 transfert
         IR = -1
     else:
-        while DMA_SIZE > ref_decl_l_cum[IR]:
+        while dma_size > ref_decl_l_cum[IR]:
             IR += 1
 
     log.debug(f"{IL=}")
@@ -441,11 +437,11 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
         area = compute_area(ref, poly_loop_namespace_partionned)
         # log.debug(f"{block_size=} @ ns = {poly_loop_namespace_partionned} -> {area=}")
         # Is area valid AND is multiplicity ok ? and nb_repeat_residual == 0
-        if area <= DMA_SIZE and il_repeat % block_size == 0:
+        if area <= dma_size and il_repeat % block_size == 0:
             break
 
     log.debug(f"HIT : {block_size=} @ ns = {poly_loop_namespace_partionned} -> {area=}")
-    assert area <= DMA_SIZE
+    assert area <= dma_size
 
     # Number of repeat for this configuration
     nb_repeat_int = block_size
@@ -616,12 +612,12 @@ def dma_mapping_algo3(ast, refs, iref, ref_decl_namespace):
 
         # print(at.ast_to_c_highlight(topcomp))
 
-    dma_efficiency = dma_transfer_size / DMA_SIZE
-    log.debug(f"             {DMA_SIZE=}")
+    dma_efficiency = dma_transfer_size / dma_size
+    log.debug(f"             {dma_size=}")
     log.debug(f"    {dma_transfer_size=}")
     log.debug(f"{dma_transfer_size_eff=}")
     efficiency = dma_transfer_size_eff / dma_transfer_size
-    log.debug(f" ------>      DMA USAGE = {dma_transfer_size/DMA_SIZE*100}%")
+    log.debug(f" ------>      DMA USAGE = {dma_transfer_size/dma_size*100}%")
     log.debug(f" ------> DMA EFFICIENCY = {efficiency*100}%")
     EFF_THRESHOLD = 0.1
     if efficiency < EFF_THRESHOLD:  # less than 1 ochet used for 10 loaded

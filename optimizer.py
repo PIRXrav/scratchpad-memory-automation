@@ -29,13 +29,13 @@ def profile(func):
 def toeplitz(tensor_i, y, x, Dky, Dkx):
     # Toeplitz matrix
     o_x = Dkx * Dky
-    o_y = (x - Dkx // 2) * (y - Dky // 2)
+    o_y = (x - Dkx + 1) * (y - Dky + 1)
     tensor_o = np.zeros((o_y, o_x), dtype=np.int32)
 
     # Perform translation # BUGS HERE
-    for ffy in range(y - Dky // 2):
-        for ffx in range(x - Dkx // 2):
-            i_filter = ffy * (x - Dkx // 2) + ffx
+    for ffy in range(y - Dky + 1):
+        for ffx in range(x - Dkx + 1):
+            i_filter = ffy * (x - Dkx + 1) + ffx
             for dkyy in range(Dky):
                 for dkxx in range(Dkx):
                     tensor_o[i_filter][dkyy * Dkx + dkxx] = tensor_i[ffy + dkyy][ffx + dkxx]
@@ -569,49 +569,6 @@ def algo2(y, x, Dky, Dkx, dma):
     
     for o, s in enumerate(state_eval_o):
         print(f'o:{o} -> {s}')
-
-
-from gencode_dma import fix_size_to_word_size
-
-def export(states, tensor_i, tensor_o, dma, word_size):
-    tensor_i = tensor_i.copy()
-    tensor_o = tensor_o.copy()
-    
-    state = [-1, -1]
-    prog = Prog()
-
-    def CS(tensor, adr):
-        return fix_size_to_word_size(min(tensor.size, adr + dma) - adr, word_size)
-
-    def transactions(tensor_o):
-        dmai = dma_load(tensor_i, state[0], dma)
-        dmao = dma_load(tensor_o, state[1], dma)
-        for idmai, vi in enumerate(dmai):
-            for idmao, vo in enumerate(dmao):
-                if vi == vo:
-                    dmao[idmao] = -1 # In reality, copy value:
-                    prog.append_mv(idmao, idmai)
-        return prog
-
-    for i, o in states:
-        # We must update O before I (for codegen)
-        if state[1] != o:
-            if state[1] != -1: # Remove first useless load
-                prog.append_sto(state[1], CS(tensor_o, state[1]))
-            prog.append_ldo(o, CS(tensor_o, o))
-            state[1] = o
-
-        if state[0] != i:
-            prog.append_ldi(i, CS(tensor_i, i))
-            state[0] = i
-
-        transactions(tensor_o)
-    
-    prog.append_sto(o, CS(tensor_o, o))
-    if not np.all(tensor_o):
-        raise Exception(f'Invalid algo: \n{tensor_o} w {np.all(tensor_o)}')
-
-    return prog
 
 
 if __name__ == '__main__':

@@ -8,7 +8,7 @@ from prog import Prog
 
 
 @njit(nogil=True)
-def fast_explore_numba(tensor_i, tensor_o, dma, word_size, history_stack):
+def fast_explore_numba(tensor_i, tensor_o, dma, block_size, history_stack):
 
     def counte_states_as_index(tensor_i, tensor_o, ind_o):
         ind_i = tensor_o.ravel()[ind_o]
@@ -41,9 +41,9 @@ def fast_explore_numba(tensor_i, tensor_o, dma, word_size, history_stack):
         ind_i = tensor_o.ravel()[ind_o]
         for i in range(max(0, ind_i - dma + 1), min(ind_i + 1, tensor_i.size)):  # tensor_i.size - dma + 1
             for o in range(max(0, ind_o - dma + 1), min(ind_o + 1, tensor_o.size)):  # tensor_o.size - dma + 1
-                if i % word_size != 0:
+                if i % block_size != 0:
                     continue
-                if o % word_size != 0:
+                if o % block_size != 0:
                     continue
                 # available_states
                 test = 0
@@ -100,11 +100,12 @@ def tsp_solve(states):
     permutation, cost = solve_tsp_local_search(distances)
     return [cost, np.array(states)[permutation]]
 
-def run(tensor_i, tensor_o, dma, word_size, do_tsp=False):
+def run(tensor_i, tensor_o, dma, block_size, do_tsp=False):
     print('================== fast_explore_numba ====================(v2)')
+    print(f'{tensor_i.size=} {tensor_o.size=} {dma=} {block_size=}')
     start_time = time.time()
     history_stack = np.zeros((tensor_o.size, 2), dtype=np.int32)
-    dept = fast_explore_numba(tensor_i, tensor_o, word_size, dma, history_stack)
+    dept = fast_explore_numba(tensor_i, tensor_o, dma, block_size, history_stack)
     best = [dept, history_stack[:dept]]
     print(f"Got states: {list(map(tuple, best[1]))}")
     print(f"Unoptimized cost: {3*best[0]}")

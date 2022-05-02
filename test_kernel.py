@@ -13,6 +13,8 @@ import toolchain as tc
 
 DEBUG_MODE = 1
 
+DMA_SIZE = 128
+
 if __name__ == "__main__":
     LOG_LEVEL = logging.DEBUG
 else:
@@ -35,7 +37,7 @@ def validation_kernel(kernel_name, config, debug=False):
     programmes with gdb
     """
     log.info(f"KERNEL validation: {kernel_name} {config}")
-    kernel = Kernel(kernel_name, config)
+    kernel = Kernel(kernel_name, config, DMA_SIZE)
     result, files = kernel.bench(debug=debug)
     # print(files)
     # for ff in zip(*tuple(files)):
